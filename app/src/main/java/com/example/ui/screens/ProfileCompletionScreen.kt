@@ -19,14 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -46,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.UserProfile
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
+import com.example.ui.components.AccountRoleSelector
 import com.example.ui.components.LanguageTogglePill
 
 @Composable
@@ -154,39 +153,12 @@ fun ProfileCompletionScreen(
                         .testTag("register_address_input")
                 )
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Badge,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = t("auth.role_label"),
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        FilterChip(
-                            selected = role == "customer",
-                            onClick = { role = "customer" },
-                            label = { Text(t("auth.role_customer")) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = role == "provider",
-                            onClick = { role = "provider" },
-                            label = { Text(t("auth.role_provider")) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
+                AccountRoleSelector(
+                    selectedRole = role,
+                    onSelectRole = { role = it },
+                    customerTestTag = "complete_role_customer",
+                    providerTestTag = "complete_role_provider"
+                )
 
                 validationErrorKey?.let { key ->
                     Text(

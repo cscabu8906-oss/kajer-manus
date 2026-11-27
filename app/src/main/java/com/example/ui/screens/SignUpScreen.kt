@@ -24,7 +24,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Person
@@ -38,7 +37,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +66,7 @@ import com.example.auth.onGoogleSignInClicked
 import com.example.data.PendingSignUpDraft
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
+import com.example.ui.components.AccountRoleSelector
 import com.example.ui.components.LanguageTogglePill
 import com.example.ui.components.LegalInfoDialog
 
@@ -231,44 +230,12 @@ fun SignUpScreen(
                                 .testTag("signup_address_input")
                         )
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Badge,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = t("auth.role_label"),
-                                    style = MaterialTheme.typography.titleSmall
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                FilterChip(
-                                    selected = accountRole == "customer",
-                                    onClick = { accountRole = "customer" },
-                                    label = { Text(t("auth.role_customer")) },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("signup_role_customer")
-                                )
-                                FilterChip(
-                                    selected = accountRole == "provider",
-                                    onClick = { accountRole = "provider" },
-                                    label = { Text(t("auth.role_provider")) },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("signup_role_provider")
-                                )
-                            }
-                        }
+                        AccountRoleSelector(
+                            selectedRole = accountRole,
+                            onSelectRole = { accountRole = it },
+                            customerTestTag = "signup_role_customer",
+                            providerTestTag = "signup_role_provider"
+                        )
 
                         Row(
                             modifier = Modifier

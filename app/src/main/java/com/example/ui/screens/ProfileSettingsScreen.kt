@@ -26,7 +26,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.example.data.UserProfile
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
+import com.example.ui.components.AccountRoleSelector
 import com.example.ui.components.ContactSupportDialog
 import com.example.ui.components.LanguageSelectorCard
 import com.example.ui.components.LegalInfoDialog
@@ -170,23 +170,12 @@ fun ProfileSettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = role == "customer",
-                            onClick = { role = "customer" },
-                            label = { Text(t("auth.role_customer")) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = role == "provider",
-                            onClick = { role = "provider" },
-                            label = { Text(t("auth.role_provider")) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    AccountRoleSelector(
+                        selectedRole = role,
+                        onSelectRole = { role = it },
+                        customerTestTag = "settings_role_customer",
+                        providerTestTag = "settings_role_provider"
+                    )
 
                     Button(
                         onClick = { onSaveProfile(fullName, mobile, address, role) },
