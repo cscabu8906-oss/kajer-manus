@@ -1,6 +1,5 @@
 package com.example.ui
 
-import android.app.Application
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +24,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -59,12 +59,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -73,9 +70,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.R
-import com.example.auth.signOut
 import com.example.data.KajerManushRepository
+import com.example.data.UserProfile
 import com.example.i18n.AppLanguage
 import com.example.i18n.LanguagePreferencesStore
 import com.example.i18n.t
@@ -89,7 +85,6 @@ import com.example.ui.screens.HomeMarketplaceScreen
 import com.example.ui.screens.NotificationsScreen
 import com.example.ui.screens.ProfileCompletionScreen
 import com.example.ui.screens.ProfileSettingsScreen
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 
 const val ROUTE_HOME = "home"
@@ -107,36 +102,24 @@ private data class NavDestinationItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthenticatedApp(
-    currentUserId: String,
-    initialDisplayName: String,
-    initialEmail: String,
+    repository: KajerManushRepository,
+    initialUser: UserProfile,
     currentLanguage: AppLanguage,
     bengaliNumerals: Boolean,
-    prefsStore: LanguagePreferencesStore,
-    pendingSignUpDraft: com.example.data.PendingSignUpDraft? = null,
-    onSignUpDraftConsumed: () -> Unit = {}
+    prefsStore: LanguagePreferencesStore
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val currentUserId = initialUser.userId
 
     val viewModel: KajerManushViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
             initializer {
-                val app = checkNotNull(this[APPLICATION_KEY])
-                val dbId = app.getString(R.string.firestore_database_id)
-                val db = FirebaseFirestore.getInstance(dbId)
                 KajerManushViewModel(
-                    repository = KajerManushRepository(db),
+                    repository = repository,
                     prefsStore = prefsStore,
                     currentUserId = currentUserId,
-                    initialDisplayName = initialDisplayName,
-                    initialEmail = initialEmail,
-                    initialLanguage = currentLanguage,
-                    initialBengaliNumerals = bengaliNumerals,
-                    pendingSignUpDraft = pendingSignUpDraft,
-                    onSignUpDraftConsumed = onSignUpDraftConsumed
+                    initialUser = initialUser
                 )
             }
         }
@@ -146,8 +129,12 @@ fun AuthenticatedApp(
     val servicesState by viewModel.servicesState.collectAsStateWithLifecycle()
     val customerBookingsState by viewModel.customerBookingsState.collectAsStateWithLifecycle()
     val providerBookingsState by viewModel.providerBookingsState.collectAsStateWithLifecycle()
+    val providerApproved by viewModel.providerApproved.collectAsStateWithLifecycle()
+    val providerProfile by viewModel.providerProfile.collectAsStateWithLifecycle()
     val notificationsState by viewModel.notificationsState.collectAsStateWithLifecycle()
     val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val adminStats by viewModel.adminStats.collectAsStateWithLifecycle()
+    val adminProviders by viewModel.adminProviders.collectAsStateWithLifecycle()
     val adminServices by viewModel.adminServicesState.collectAsStateWithLifecycle()
     val adminBookings by viewModel.adminBookingsState.collectAsStateWithLifecycle()
     val adminUsers by viewModel.adminUsersState.collectAsStateWithLifecycle()
@@ -176,7 +163,6 @@ fun AuthenticatedApp(
         return
     }
 
-    // Complete registration step if profile is newly created and not completed yet
     if (loadedProfile != null && !loadedProfile.profileCompleted) {
         val savedMsg = t("settings.profile_saved")
         val errMsg = t("common.error_generic")
@@ -185,8 +171,8 @@ fun AuthenticatedApp(
             currentLanguage = currentLanguage,
             isSaving = isMutating,
             onSelectLanguage = { lang -> viewModel.switchLanguage(lang, bengaliNumerals) },
-            onSaveRegistration = { name, mobile, address, role ->
-                viewModel.completeRegistration(name, mobile, address, role, savedMsg, errMsg)
+            onSaveRegistration = { name, mobile, address ->
+                viewModel.updateProfile(name, mobile, address, savedMsg, errMsg)
             }
         )
         return
@@ -199,6 +185,7 @@ fun AuthenticatedApp(
 
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
     var showTerms by rememberSaveable { mutableStateOf(false) }
+    var showCancellation by rememberSaveable { mutableStateOf(false) }
     var showContact by rememberSaveable { mutableStateOf(false) }
 
     val unreadCount = (notificationsState as? UiState.Success)?.data?.count { !it.readFlag } ?: 0
@@ -228,6 +215,8 @@ fun AuthenticatedApp(
     val bookingCreatedMsg = t("service.booking_success")
     val bookingStatusMsg = t("booking.status_updated")
     val profileSavedMsg = t("settings.profile_saved")
+    val providerSavedMsg = t("booking.provider_profile_saved")
+    val reviewSavedMsg = t("booking.review_submitted")
     val contactSentMsg = t("settings.contact_sent")
     val genericErrMsg = t("common.error_generic")
 
@@ -246,16 +235,15 @@ fun AuthenticatedApp(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = loadedProfile?.fullName?.ifBlank { initialDisplayName } ?: initialDisplayName,
+                        text = loadedProfile?.fullName?.ifBlank { initialUser.fullName } ?: initialUser.fullName,
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = loadedProfile?.email ?: initialEmail,
+                        text = loadedProfile?.email ?: initialUser.email,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // Language Switcher inside Navigation Menu (Drawer)
                     LanguageSelectorCard(
                         currentLanguage = currentLanguage,
                         onSelectLanguage = { lang -> viewModel.switchLanguage(lang, bengaliNumerals) },
@@ -311,11 +299,21 @@ fun AuthenticatedApp(
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
                 NavigationDrawerItem(
+                    label = { Text(t("nav.cancellation")) },
+                    selected = false,
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        showCancellation = true
+                    },
+                    icon = { Icon(Icons.Rounded.Policy, contentDescription = null) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                NavigationDrawerItem(
                     label = { Text(t("auth.sign_out")) },
                     selected = false,
                     onClick = {
                         scope.launch { drawerState.close() }
-                        signOut(credentialManager, scope)
+                        viewModel.signOut()
                     },
                     icon = { Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null) },
                     modifier = Modifier.padding(horizontal = 12.dp)
@@ -431,7 +429,8 @@ fun AuthenticatedApp(
                                 isMutating = isMutating,
                                 onSearchChange = viewModel::setSearchQuery,
                                 onSelectCategory = viewModel::selectCategory,
-                                onCreateBooking = { svc, name, phone, addr, date, slot, notes, assignDemo, onBooked ->
+                                onRefresh = viewModel::loadServices,
+                                onCreateBooking = { svc, name, phone, addr, date, slot, notes, onBooked ->
                                     viewModel.createBooking(
                                         service = svc,
                                         customerName = name,
@@ -441,7 +440,6 @@ fun AuthenticatedApp(
                                         scheduledSlot = slot,
                                         notes = notes,
                                         language = currentLanguage,
-                                        assignSelfAsDemoProvider = assignDemo,
                                         successMsg = bookingCreatedMsg,
                                         errorMsg = genericErrMsg,
                                         onBooked = onBooked
@@ -454,23 +452,33 @@ fun AuthenticatedApp(
                             BookingsScreen(
                                 customerBookingsState = customerBookingsState,
                                 providerBookingsState = providerBookingsState,
-                                isProviderAccount = loadedProfile?.accountRole == "provider",
+                                isProviderAccount = loadedProfile?.accountRole == "provider" || loadedProfile?.accountRole == "admin",
+                                providerApproved = providerApproved,
+                                providerProfile = providerProfile,
                                 isMutating = isMutating,
+                                onRefresh = viewModel::loadBookings,
                                 onUpdateBookingStatus = { booking, newStatus ->
                                     viewModel.updateBookingStatus(
                                         booking = booking,
                                         newStatus = newStatus,
-                                        notifyLanguage = currentLanguage,
                                         successMsg = bookingStatusMsg,
                                         errorMsg = genericErrMsg
                                     )
-                                }
+                                },
+                                onSubmitReview = { bookingId, rating, comment, onDone ->
+                                    viewModel.submitReview(bookingId, rating, comment, reviewSavedMsg, genericErrMsg, onDone)
+                                },
+                                onApplyProviderProfile = { bioBn, bioEn, cats, locBn, locEn, exp, onDone ->
+                                    viewModel.applyProviderProfile(bioBn, bioEn, cats, locBn, locEn, exp, providerSavedMsg, genericErrMsg, onDone)
+                                },
+                                onToggleProviderAvailability = viewModel::toggleProviderAvailability
                             )
                         }
 
                         composable(ROUTE_NOTIFICATIONS) {
                             NotificationsScreen(
                                 notificationsState = notificationsState,
+                                onRefresh = viewModel::loadNotifications,
                                 onMarkRead = viewModel::markNotificationRead
                             )
                         }
@@ -484,13 +492,13 @@ fun AuthenticatedApp(
                                 onSelectLanguage = { lang -> viewModel.switchLanguage(lang, bengaliNumerals) },
                                 onToggleBengaliNumerals = { enabled -> viewModel.toggleBengaliNumerals(enabled, currentLanguage) },
                                 onUpdateNotificationPrefs = viewModel::updateNotificationPrefs,
-                                onSaveProfile = { name, mobile, addr, role ->
-                                    viewModel.completeRegistration(name, mobile, addr, role, profileSavedMsg, genericErrMsg)
+                                onSaveProfile = { name, mobile, addr ->
+                                    viewModel.updateProfile(name, mobile, addr, profileSavedMsg, genericErrMsg)
                                 },
                                 onSubmitSupportTicket = { subject, msg, onDone ->
                                     viewModel.submitSupportTicket(subject, msg, currentLanguage, contactSentMsg, genericErrMsg, onDone)
                                 },
-                                onSignOut = { signOut(credentialManager, scope) }
+                                onSignOut = viewModel::signOut
                             )
                         }
 
@@ -498,19 +506,22 @@ fun AuthenticatedApp(
                             AdminDashboardScreen(
                                 isAdmin = isAdmin,
                                 currentLanguage = currentLanguage,
+                                stats = adminStats,
+                                providers = adminProviders,
                                 services = adminServices,
                                 bookings = adminBookings,
                                 users = adminUsers,
                                 isMutating = isMutating,
                                 onSelectLanguage = { lang -> viewModel.switchLanguage(lang, bengaliNumerals) },
-                                onSeedDefaultServices = {
-                                    viewModel.seedDefaultServicesAdmin(profileSavedMsg, genericErrMsg)
+                                onRefresh = viewModel::loadAdminData,
+                                onApproveProvider = { providerId, decision ->
+                                    viewModel.approveProviderAdmin(providerId, decision, bookingStatusMsg, genericErrMsg)
                                 },
                                 onSaveService = { svc, isNew, onSaved ->
                                     viewModel.saveServiceAdmin(svc, isNew, profileSavedMsg, genericErrMsg, onSaved)
                                 },
                                 onUpdateBookingStatus = { booking, newStatus ->
-                                    viewModel.updateBookingStatus(booking, newStatus, currentLanguage, bookingStatusMsg, genericErrMsg)
+                                    viewModel.updateBookingStatus(booking, newStatus, bookingStatusMsg, genericErrMsg)
                                 }
                             )
                         }
@@ -525,6 +536,9 @@ fun AuthenticatedApp(
     }
     if (showTerms) {
         LegalInfoDialog(title = t("settings.terms_title"), body = t("settings.terms_body"), onDismiss = { showTerms = false })
+    }
+    if (showCancellation) {
+        LegalInfoDialog(title = t("settings.cancellation_title"), body = t("settings.cancellation_body"), onDismiss = { showCancellation = false })
     }
     if (showContact) {
         ContactSupportDialog(

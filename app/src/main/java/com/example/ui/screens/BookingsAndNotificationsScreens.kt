@@ -5,12 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,17 +19,24 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.EventNote
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Engineering
+import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MarkEmailRead
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,16 +45,20 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -55,27 +67,47 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.data.BookingStatus
+import com.example.data.ProviderProfile
 import com.example.data.ServiceBooking
+import com.example.data.ServiceCategory
 import com.example.data.UserNotification
 import com.example.i18n.LocalBilingualConfig
 import com.example.i18n.t
 import com.example.ui.UiState
 import com.example.ui.components.BilingualEmptyState
 import com.example.ui.components.BookingStatusBadge
+import com.example.ui.components.ReviewDialog
 
 @Composable
 fun BookingsScreen(
     customerBookingsState: UiState<List<ServiceBooking>>,
     providerBookingsState: UiState<List<ServiceBooking>>,
     isProviderAccount: Boolean,
+    providerApproved: Boolean,
+    providerProfile: ProviderProfile?,
     isMutating: Boolean,
-    onUpdateBookingStatus: (ServiceBooking, BookingStatus) -> Unit
+    onRefresh: () -> Unit,
+    onUpdateBookingStatus: (ServiceBooking, BookingStatus) -> Unit,
+    onSubmitReview: (bookingId: String, rating: Int, comment: String, onDone: () -> Unit) -> Unit,
+    onApplyProviderProfile: (
+        bioBn: String,
+        bioEn: String,
+        categories: List<String>,
+        locationBn: String,
+        locationEn: String,
+        experienceYears: Int,
+        onDone: () -> Unit
+    ) -> Unit,
+    onToggleProviderAvailability: (Boolean) -> Unit
 ) {
-    var providerMode by rememberSaveable { mutableStateOf(isProviderAccount) }
+    var providerMode by rememberSaveable(isProviderAccount) { mutableStateOf(isProviderAccount) }
     var selectedStatusKey by rememberSaveable { mutableStateOf<String?>(null) }
     var cancelTarget by remember { mutableStateOf<ServiceBooking?>(null) }
+    var reviewTarget by remember { mutableStateOf<ServiceBooking?>(null) }
+    var showWorkerSetup by rememberSaveable { mutableStateOf(false) }
 
     val activeState = if (providerMode) providerBookingsState else customerBookingsState
 
@@ -88,34 +120,102 @@ fun BookingsScreen(
                 .widthIn(max = 760.dp)
                 .fillMaxSize()
         ) {
-            // Mode Switcher: Customer vs Provider Dashboard
             Column(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    SegmentedButton(
-                        selected = !providerMode,
-                        onClick = { providerMode = false },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        modifier = Modifier.testTag("customer_mode_tab")
-                    ) {
-                        Text(t("booking.switch_to_customer"))
-                    }
-                    SegmentedButton(
-                        selected = providerMode,
-                        onClick = { providerMode = true },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        modifier = Modifier.testTag("provider_mode_tab")
-                    ) {
-                        Text(t("booking.switch_to_provider"))
+                if (isProviderAccount) {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = !providerMode,
+                            onClick = { providerMode = false },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                            modifier = Modifier.testTag("customer_mode_tab")
+                        ) {
+                            Text(t("booking.switch_to_customer"))
+                        }
+                        SegmentedButton(
+                            selected = providerMode,
+                            onClick = { providerMode = true },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                            modifier = Modifier.testTag("provider_mode_tab")
+                        ) {
+                            Text(t("booking.switch_to_provider"))
+                        }
                     }
                 }
 
-                Text(
-                    text = if (providerMode) t("booking.provider_dashboard") else t("booking.my_bookings"),
-                    style = MaterialTheme.typography.headlineSmall
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (providerMode) t("booking.provider_dashboard") else t("booking.my_bookings"),
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    IconButton(onClick = onRefresh) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = t("home.refresh"))
+                    }
+                }
+
+                if (providerMode) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (providerApproved) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            } else {
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                            }
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (providerApproved) Icons.Rounded.Verified else Icons.Rounded.HourglassTop,
+                                        contentDescription = null,
+                                        tint = if (providerApproved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                                    )
+                                    Text(
+                                        text = if (providerApproved) t("booking.provider_approved_badge") else t("booking.provider_pending_banner"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                if (providerApproved && providerProfile != null) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(t("booking.provider_available"), style = MaterialTheme.typography.labelSmall)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Switch(
+                                            checked = providerProfile.isAvailable,
+                                            onCheckedChange = onToggleProviderAvailability
+                                        )
+                                    }
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = { showWorkerSetup = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(t("booking.provider_setup_btn"))
+                            }
+                        }
+                    }
+                }
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
@@ -172,6 +272,7 @@ fun BookingsScreen(
                                     providerMode = providerMode,
                                     isMutating = isMutating,
                                     onRequestCancel = { cancelTarget = booking },
+                                    onRequestReview = { reviewTarget = booking },
                                     onUpdateStatus = { status -> onUpdateBookingStatus(booking, status) }
                                 )
                             }
@@ -205,6 +306,119 @@ fun BookingsScreen(
             }
         )
     }
+
+    reviewTarget?.let { target ->
+        ReviewDialog(
+            isSubmitting = isMutating,
+            onSubmit = { rating, comment ->
+                onSubmitReview(target.id, rating, comment) {
+                    reviewTarget = null
+                }
+            },
+            onDismiss = { reviewTarget = null }
+        )
+    }
+
+    if (showWorkerSetup) {
+        WorkerSetupDialog(
+            initial = providerProfile,
+            isSaving = isMutating,
+            onSave = { bioBn, bioEn, cats, locBn, locEn, exp ->
+                onApplyProviderProfile(bioBn, bioEn, cats, locBn, locEn, exp) {
+                    showWorkerSetup = false
+                }
+            },
+            onDismiss = { showWorkerSetup = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WorkerSetupDialog(
+    initial: ProviderProfile?,
+    isSaving: Boolean,
+    onSave: (bioBn: String, bioEn: String, cats: List<String>, locBn: String, locEn: String, exp: Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var location by rememberSaveable { mutableStateOf(initial?.serviceLocationEn ?: initial?.serviceLocationBn ?: "Kolkata") }
+    var bio by rememberSaveable { mutableStateOf(initial?.bioEn ?: initial?.bioBn ?: "") }
+    var expStr by rememberSaveable { mutableStateOf((initial?.experienceYears ?: 2).toString()) }
+    val selectedCats = remember {
+        mutableStateListOf<String>().apply {
+            val initCats = initial?.serviceCategories.orEmpty()
+            if (initCats.isNotEmpty()) addAll(initCats) else add(ServiceCategory.ELECTRICIAN.key)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("booking.provider_setup_btn")) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = location,
+                    onValueChange = { location = it },
+                    label = { Text(t("booking.provider_location")) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = expStr,
+                    onValueChange = { expStr = it.filter(Char::isDigit).take(2) },
+                    label = { Text(t("booking.provider_exp")) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = bio,
+                    onValueChange = { bio = it },
+                    label = { Text(t("booking.provider_bio")) },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ServiceCategory.entries.forEach { cat ->
+                        val chosen = selectedCats.contains(cat.key)
+                        FilterChip(
+                            selected = chosen,
+                            onClick = {
+                                if (chosen && selectedCats.size > 1) selectedCats.remove(cat.key)
+                                else if (!chosen) selectedCats.add(cat.key)
+                            },
+                            label = { Text(t(cat.i18nKey)) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !isSaving && location.trim().length >= 2 && selectedCats.isNotEmpty(),
+                onClick = {
+                    onSave(
+                        bio,
+                        bio,
+                        selectedCats.toList(),
+                        location,
+                        location,
+                        expStr.toIntOrNull() ?: 1
+                    )
+                }
+            ) {
+                Text(t("booking.provider_save_profile"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(t("common.cancel"))
+            }
+        }
+    )
 }
 
 @Composable
@@ -213,6 +427,7 @@ private fun BookingCard(
     providerMode: Boolean,
     isMutating: Boolean,
     onRequestCancel: () -> Unit,
+    onRequestReview: () -> Unit,
     onUpdateStatus: (BookingStatus) -> Unit
 ) {
     val config = LocalBilingualConfig.current
@@ -303,13 +518,32 @@ private fun BookingCard(
                 )
             }
 
-            if (!providerMode && status == BookingStatus.PENDING) {
+            if (!providerMode && (status == BookingStatus.PENDING || status == BookingStatus.ACCEPTED)) {
                 OutlinedButton(
                     onClick = onRequestCancel,
                     enabled = !isMutating,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(t("booking.cancel_btn"), color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            if (!providerMode && status == BookingStatus.COMPLETED) {
+                if (booking.hasReview) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Rounded.Star, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                        Text(t("booking.reviewed_badge"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    Button(
+                        onClick = onRequestReview,
+                        enabled = !isMutating,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.Star, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(t("booking.leave_review"))
+                    }
                 }
             }
 
@@ -364,6 +598,7 @@ private fun BookingCard(
 @Composable
 fun NotificationsScreen(
     notificationsState: UiState<List<UserNotification>>,
+    onRefresh: () -> Unit,
     onMarkRead: (String) -> Unit
 ) {
     val config = LocalBilingualConfig.current
@@ -381,13 +616,21 @@ fun NotificationsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                Text(
-                    text = t("notifications.title"),
-                    style = MaterialTheme.typography.headlineSmall
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = t("notifications.title"),
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    IconButton(onClick = onRefresh) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = t("home.refresh"))
+                    }
+                }
             }
 
-            // FCM & Email bilingual delivery cards
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

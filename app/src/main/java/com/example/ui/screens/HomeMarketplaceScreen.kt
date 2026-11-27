@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
@@ -36,7 +36,6 @@ import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -45,12 +44,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,8 +77,10 @@ import com.example.i18n.t
 import com.example.ui.UiState
 import com.example.ui.components.BilingualEmptyState
 import com.example.ui.components.categoryIcon
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeMarketplaceScreen(
     userProfile: UserProfile?,
@@ -87,6 +90,7 @@ fun HomeMarketplaceScreen(
     isMutating: Boolean,
     onSearchChange: (String) -> Unit,
     onSelectCategory: (String?) -> Unit,
+    onRefresh: () -> Unit,
     onCreateBooking: (
         service: ServiceOffering,
         customerName: String,
@@ -95,7 +99,6 @@ fun HomeMarketplaceScreen(
         scheduledDate: String,
         scheduledSlot: String,
         notes: String,
-        assignSelfAsDemoProvider: Boolean,
         onBooked: () -> Unit
     ) -> Unit
 ) {
@@ -104,7 +107,7 @@ fun HomeMarketplaceScreen(
     var selectedService by remember { mutableStateOf<ServiceOffering?>(null) }
 
     val categoryLookup = ServiceCategory.entries.associate { cat ->
-        cat.key to (t(cat.i18nKey))
+        cat.key to t(cat.i18nKey)
     }
 
     Box(
@@ -123,10 +126,21 @@ fun HomeMarketplaceScreen(
             }
 
             is UiState.Error -> {
-                BilingualEmptyState(
-                    title = t("common.error_generic"),
-                    hint = servicesState.message
-                )
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    BilingualEmptyState(
+                        title = t("common.error_generic"),
+                        hint = servicesState.message
+                    )
+                    OutlinedButton(onClick = onRefresh) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(t("common.retry"))
+                    }
+                }
             }
 
             is UiState.Success -> {
@@ -155,19 +169,27 @@ fun HomeMarketplaceScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Greeting + Hero Banner
                     item {
                         val userName = userProfile?.fullName?.takeIf { it.isNotBlank() } ?: ""
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(
-                                text = if (userName.isNotBlank()) "${t("home.greeting")}, $userName" else t("home.greeting"),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (userName.isNotBlank()) "${t("home.greeting")}, $userName" else t("home.greeting"),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                IconButton(onClick = onRefresh) {
+                                    Icon(Icons.Rounded.Refresh, contentDescription = t("home.refresh"))
+                                }
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(180.dp)
+                                    .height(175.dp)
                                     .clip(RoundedCornerShape(22.dp))
                             ) {
                                 Image(
@@ -218,7 +240,6 @@ fun HomeMarketplaceScreen(
                         }
                     }
 
-                    // Bilingual Search Field
                     item {
                         OutlinedTextField(
                             value = searchQuery,
@@ -246,7 +267,7 @@ fun HomeMarketplaceScreen(
                         )
                     }
 
-                    // 8 Categories Filter Row
+                    // 12 Categories Filter Row
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
@@ -292,7 +313,6 @@ fun HomeMarketplaceScreen(
                         }
                     }
 
-                    // Featured Services Header
                     item {
                         Text(
                             text = t("home.featured_services"),
@@ -329,7 +349,7 @@ fun HomeMarketplaceScreen(
             userProfile = userProfile,
             isMutating = isMutating,
             onDismiss = { selectedService = null },
-            onConfirmBooking = { name, phone, address, date, slot, notes, assignDemo ->
+            onConfirmBooking = { name, phone, address, date, slot, notes ->
                 onCreateBooking(
                     service,
                     name,
@@ -337,8 +357,7 @@ fun HomeMarketplaceScreen(
                     address,
                     date,
                     slot,
-                    notes,
-                    assignDemo
+                    notes
                 ) {
                     selectedService = null
                 }
@@ -491,21 +510,20 @@ private fun ServiceDetailAndBookingSheet(
         address: String,
         date: String,
         slot: String,
-        notes: String,
-        assignDemoProvider: Boolean
+        notes: String
     ) -> Unit
 ) {
     val config = LocalBilingualConfig.current
     val lang = config.language
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val defaultDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
 
     var customerName by rememberSaveable(service.id) { mutableStateOf(userProfile?.fullName.orEmpty()) }
     var customerPhone by rememberSaveable(service.id) { mutableStateOf(userProfile?.mobileNumber.orEmpty()) }
     var serviceAddress by rememberSaveable(service.id) { mutableStateOf(userProfile?.fullAddress.orEmpty()) }
-    var scheduledDate by rememberSaveable(service.id) { mutableStateOf("2026-11-28") }
-    var slotIndex by rememberSaveable(service.id) { mutableStateOf(0) }
+    var scheduledDate by rememberSaveable(service.id) { mutableStateOf(defaultDate) }
+    var slotIndex by rememberSaveable(service.id) { mutableIntStateOf(0) }
     var notes by rememberSaveable(service.id) { mutableStateOf("") }
-    var assignDemoProvider by rememberSaveable(service.id) { mutableStateOf(true) }
     var errorKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     val slotOptions = listOf(
@@ -536,7 +554,6 @@ private fun ServiceDetailAndBookingSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Worker Profile Summary
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(16.dp),
@@ -631,23 +648,6 @@ private fun ServiceDetailAndBookingSheet(
                     .testTag("booking_notes_input")
             )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { assignDemoProvider = !assignDemoProvider }
-            ) {
-                Checkbox(
-                    checked = assignDemoProvider,
-                    onCheckedChange = { assignDemoProvider = it }
-                )
-                Text(
-                    text = t("service.demo_provider_assign"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
             errorKey?.let { key ->
                 Text(
                     text = t(key),
@@ -659,17 +659,16 @@ private fun ServiceDetailAndBookingSheet(
             Button(
                 onClick = {
                     when {
-                        customerName.trim().isEmpty() -> errorKey = "auth.err_name_required"
-                        customerPhone.filter { it.isDigit() }.length < 5 -> errorKey = "auth.err_mobile_invalid"
-                        serviceAddress.trim().length < 3 -> errorKey = "auth.err_address_required"
+                        customerName.trim().length < 2 -> errorKey = "auth.err_name_required"
+                        customerPhone.filter { it.isDigit() }.length < 10 -> errorKey = "auth.err_mobile_invalid"
+                        serviceAddress.trim().length < 4 -> errorKey = "auth.err_address_required"
                         else -> onConfirmBooking(
                             customerName,
                             customerPhone,
                             serviceAddress,
                             scheduledDate,
                             slotOptions[slotIndex],
-                            notes,
-                            assignDemoProvider
+                            notes
                         )
                     }
                 },

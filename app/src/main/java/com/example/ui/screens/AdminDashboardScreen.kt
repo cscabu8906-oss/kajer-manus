@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,9 +23,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AdminPanelSettings
-import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -53,7 +52,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.data.AdminStats
 import com.example.data.BookingStatus
+import com.example.data.ProviderProfile
 import com.example.data.ServiceBooking
 import com.example.data.ServiceCategory
 import com.example.data.ServiceOffering
@@ -69,12 +70,15 @@ import com.example.ui.components.LanguageTogglePill
 fun AdminDashboardScreen(
     isAdmin: Boolean,
     currentLanguage: AppLanguage,
+    stats: AdminStats,
+    providers: List<ProviderProfile>,
     services: List<ServiceOffering>,
     bookings: List<ServiceBooking>,
     users: List<UserProfile>,
     isMutating: Boolean,
     onSelectLanguage: (AppLanguage) -> Unit,
-    onSeedDefaultServices: () -> Unit,
+    onRefresh: () -> Unit,
+    onApproveProvider: (providerId: String, decision: String) -> Unit,
     onSaveService: (ServiceOffering, Boolean, () -> Unit) -> Unit,
     onUpdateBookingStatus: (ServiceBooking, BookingStatus) -> Unit
 ) {
@@ -94,6 +98,7 @@ fun AdminDashboardScreen(
 
     val sectionTitles = listOf(
         t("admin.stats"),
+        t("admin.providers"),
         t("admin.services"),
         t("admin.bookings"),
         t("admin.users"),
@@ -132,10 +137,15 @@ fun AdminDashboardScreen(
                             style = MaterialTheme.typography.headlineSmall
                         )
                     }
-                    LanguageTogglePill(
-                        currentLanguage = currentLanguage,
-                        onSelectLanguage = onSelectLanguage
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onRefresh) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = t("home.refresh"))
+                        }
+                        LanguageTogglePill(
+                            currentLanguage = currentLanguage,
+                            onSelectLanguage = onSelectLanguage
+                        )
+                    }
                 }
             }
 
@@ -161,13 +171,13 @@ fun AdminDashboardScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 AdminStatCard(
-                                    label = t("admin.total_services"),
-                                    value = config.formatNumber(services.size),
+                                    label = t("admin.total_users"),
+                                    value = config.formatNumber(stats.totalUsers),
                                     modifier = Modifier.weight(1f)
                                 )
                                 AdminStatCard(
-                                    label = t("admin.total_bookings"),
-                                    value = config.formatNumber(bookings.size),
+                                    label = t("admin.pending_providers"),
+                                    value = config.formatNumber(stats.pendingProviders),
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -176,13 +186,13 @@ fun AdminDashboardScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 AdminStatCard(
-                                    label = t("admin.total_users"),
-                                    value = config.formatNumber(users.size),
+                                    label = t("admin.total_bookings"),
+                                    value = config.formatNumber(stats.totalBookings),
                                     modifier = Modifier.weight(1f)
                                 )
                                 AdminStatCard(
                                     label = t("admin.pending_bookings"),
-                                    value = config.formatNumber(bookings.count { it.status == "pending" }),
+                                    value = config.formatNumber(stats.pendingBookings),
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -191,6 +201,41 @@ fun AdminDashboardScreen(
                 }
 
                 1 -> {
+                    items(providers, key = { it.id }) { prov ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(prov.fullName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text("${prov.email} • ${prov.mobileNumber}", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    "${prov.serviceLocationEn} • ${prov.approvalStatus.uppercase()}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                if (!prov.isApproved) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            enabled = !isMutating,
+                                            onClick = { onApproveProvider(prov.id, "approved") }
+                                        ) {
+                                            Text(t("admin.approve_btn"))
+                                        }
+                                        OutlinedButton(
+                                            enabled = !isMutating,
+                                            onClick = { onApproveProvider(prov.id, "rejected") }
+                                        ) {
+                                            Text(t("admin.reject_btn"))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                2 -> {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Surface(
@@ -204,31 +249,17 @@ fun AdminDashboardScreen(
                                     modifier = Modifier.padding(12.dp)
                                 )
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            Button(
+                                onClick = {
+                                    creatingNew = true
+                                    editingService = ServiceOffering()
+                                },
+                                enabled = !isMutating,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                OutlinedButton(
-                                    onClick = onSeedDefaultServices,
-                                    enabled = !isMutating,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Rounded.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(t("admin.seed_catalog"))
-                                }
-                                Button(
-                                    onClick = {
-                                        creatingNew = true
-                                        editingService = ServiceOffering()
-                                    },
-                                    enabled = !isMutating,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(t("admin.add_service"))
-                                }
+                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(t("admin.add_service"))
                             }
                         }
                     }
@@ -262,7 +293,7 @@ fun AdminDashboardScreen(
                     }
                 }
 
-                2 -> {
+                3 -> {
                     items(bookings, key = { it.id }) { booking ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -304,7 +335,7 @@ fun AdminDashboardScreen(
                     }
                 }
 
-                3 -> {
+                4 -> {
                     items(users, key = { it.userId }) { usr ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -323,7 +354,7 @@ fun AdminDashboardScreen(
                     }
                 }
 
-                4 -> {
+                5 -> {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(t("admin.template_preview_title"), style = MaterialTheme.typography.titleMedium)

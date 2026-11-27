@@ -27,19 +27,25 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Carpenter
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.Construction
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Engineering
 import androidx.compose.material.icons.rounded.FormatPaint
 import androidx.compose.material.icons.rounded.Kitchen
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Plumbing
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.Yard
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +55,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -424,7 +431,11 @@ fun categoryIcon(categoryKey: String): ImageVector = when (ServiceCategory.fromK
     ServiceCategory.CARPENTER -> Icons.Rounded.Carpenter
     ServiceCategory.PAINTER -> Icons.Rounded.FormatPaint
     ServiceCategory.APPLIANCE_REPAIR -> Icons.Rounded.Kitchen
+    ServiceCategory.INTERNET_TECHNICIAN -> Icons.Rounded.Wifi
+    ServiceCategory.CONSTRUCTION_WORKER -> Icons.Rounded.Construction
+    ServiceCategory.DRIVER -> Icons.Rounded.DirectionsCar
     ServiceCategory.GARDENING -> Icons.Rounded.Yard
+    ServiceCategory.OTHER_SERVICES -> Icons.Rounded.Build
 }
 
 @Composable
@@ -489,6 +500,62 @@ fun LegalInfoDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(text = t("common.close"))
+            }
+        }
+    )
+}
+
+@Composable
+fun ReviewDialog(
+    isSubmitting: Boolean,
+    onSubmit: (rating: Int, comment: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var rating by rememberSaveable { mutableIntStateOf(5) }
+    var comment by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("booking.leave_review"), style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(t("booking.rating_label"), style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    (1..5).forEach { star ->
+                        IconButton(onClick = { rating = star }) {
+                            Icon(
+                                imageVector = if (star <= rating) Icons.Rounded.Star else Icons.Rounded.StarOutline,
+                                contentDescription = "$star",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    label = { Text(t("booking.review_comment")) },
+                    minLines = 3,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSubmit(rating, comment) },
+                enabled = !isSubmitting
+            ) {
+                Text(t("booking.submit_review"))
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text(t("common.cancel"))
             }
         }
     )

@@ -1,691 +1,473 @@
 package com.example.data
 
-import android.content.Context
-import com.example.R
+import com.example.auth.SessionManager
 import com.example.i18n.AppLanguage
-import com.google.firebase.Firebase
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.auth
-import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
-import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.tasks.await
+import org.json.JSONArray
+import org.json.JSONObject
 
 class KajerManushRepository(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth
+    private val sessionManager: SessionManager,
+    private val api: ApiClient = ApiClient()
 ) {
-    constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
-    )
-
-    private fun requireUserId(): String {
-        return auth.currentUser?.uid
-            ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
+    private suspend fun requireToken(): String {
+        return sessionManager.getToken()
+            ?: throw IllegalStateException("Please sign in to continue.")
     }
 
-    suspend fun checkIsAdmin(uid: String): Boolean {
-        val currentEmail = auth.currentUser?.email
-        val emailVerified = auth.currentUser?.isEmailVerified == true
-        if (emailVerified && currentEmail.equals("cscabu8906@gmail.com", ignoreCase = true)) {
-            return true
+    // ---------- Authentication & OTP ----------
+
+    suspend fun login(email: String, password: String): Result<UserProfile> = runCatchingRest {
+        val body = JSONObject().apply {
+            put("email", email.trim())
+            put("password", password)
         }
-        return try {
-            val doc = db.collection("admins").document(uid).get().await()
-            doc.exists()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            false
-        }
+        val res = api.request("POST", "/auth/login", body = body)
+        val token = res.getString("token")
+        val user = SessionManager.parseUserObject(res.getJSONObject("user"))
+        sessionManager.saveSession(token, user)
+        user
     }
 
-    fun observeUserProfile(userId: String): Flow<UserProfile?> = flow {
-        val uid = requireUserId()
-        check(uid == userId) { "User ID mismatch" }
-        val docRef = db.collection("users").document(uid)
-        emitAll(
-            docRef.snapshots()
-                .map { snapshot ->
-                    if (snapshot.exists()) {
-                        snapshot.toObject(UserProfile::class.java, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
-                    } else null
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
-                        handleFirestoreError(toLog, OperationType.GET, docRef.path)
-                    }
-                    throw error
-                }
-        )
-    }
-
-    suspend fun ensureUserProfile(
-        uid: String,
-        displayName: String,
+    suspend fun register(
+        fullName: String,
         email: String,
-        preferredLanguage: AppLanguage,
-        bengaliNumerals: Boolean,
-        signUpDraft: PendingSignUpDraft? = null
-    ): Result<UserProfile> {
-        val docPath = "users/$uid"
-        return try {
-            val currentUid = requireUserId()
-            check(currentUid == uid) { "Signed-in user mismatch" }
-            val docRef = db.collection("users").document(uid)
-            val existingSnap = docRef.get().await()
-            if (existingSnap.exists()) {
-                val profile = existingSnap.toObject(
-                    UserProfile::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                ) ?: UserProfile(userId = uid, fullName = displayName, email = email)
-                if (signUpDraft != null && !profile.profileCompleted) {
-                    val safeRole = if (signUpDraft.accountRole == "provider") "provider" else "customer"
-                    val resolvedName = signUpDraft.fullName.trim().ifBlank { profile.fullName }.take(80)
-                    docRef.update(
-                        mapOf(
-                            "fullName" to resolvedName,
-                            "mobileNumber" to signUpDraft.mobileNumber.trim().take(20),
-                            "fullAddress" to signUpDraft.fullAddress.trim().take(250),
-                            "accountRole" to safeRole,
-                            "languagePreference" to preferredLanguage.code,
-                            "bengaliNumerals" to bengaliNumerals,
-                            "profileCompleted" to true,
-                            "updatedAt" to FieldValue.serverTimestamp()
-                        )
-                    ).await()
-                    Result.success(
-                        profile.copy(
-                            fullName = resolvedName,
-                            mobileNumber = signUpDraft.mobileNumber.trim().take(20),
-                            fullAddress = signUpDraft.fullAddress.trim().take(250),
-                            accountRole = safeRole,
-                            languagePreference = preferredLanguage.code,
-                            bengaliNumerals = bengaliNumerals,
-                            profileCompleted = true
-                        )
-                    )
-                } else {
-                    Result.success(profile)
-                }
-            } else {
-                val safeName = (signUpDraft?.fullName?.trim()?.takeIf { it.isNotBlank() } ?: displayName.trim())
-                    .ifBlank { "Kajer Manus User" }.take(80)
-                val safeEmail = email.trim()
-                    .ifBlank { signUpDraft?.email?.trim().orEmpty() }
-                    .ifBlank { "user@kajermanus.in" }.take(120)
-                val safeMobile = signUpDraft?.mobileNumber?.trim().orEmpty().take(20)
-                val safeAddress = signUpDraft?.fullAddress?.trim().orEmpty().take(250)
-                val safeRole = if (signUpDraft?.accountRole == "provider") "provider" else "customer"
-                val completed = signUpDraft != null &&
-                    safeMobile.filter(Char::isDigit).length >= 5 &&
-                    safeAddress.length >= 3
-                val payload = mapOf(
-                    "userId" to uid,
-                    "fullName" to safeName,
-                    "email" to safeEmail,
-                    "mobileNumber" to safeMobile,
-                    "fullAddress" to safeAddress,
-                    "accountRole" to safeRole,
-                    "languagePreference" to preferredLanguage.code,
-                    "bengaliNumerals" to bengaliNumerals,
-                    "pushNotificationsEnabled" to true,
-                    "emailNotificationsEnabled" to true,
-                    "profileCompleted" to completed,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                docRef.set(payload).await()
-                Result.success(
-                    UserProfile(
-                        id = uid,
-                        userId = uid,
-                        fullName = safeName,
-                        email = safeEmail,
-                        mobileNumber = safeMobile,
-                        fullAddress = safeAddress,
-                        accountRole = safeRole,
-                        languagePreference = preferredLanguage.code,
-                        bengaliNumerals = bengaliNumerals,
-                        profileCompleted = completed
-                    )
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docPath)
-            Result.failure(e)
+        mobileNumber: String,
+        fullAddress: String,
+        password: String,
+        accountRole: String,
+        languagePreference: AppLanguage,
+        bengaliNumerals: Boolean
+    ): Result<String> = runCatchingRest {
+        val body = JSONObject().apply {
+            put("fullName", fullName.trim())
+            put("email", email.trim())
+            put("mobileNumber", mobileNumber.trim())
+            put("fullAddress", fullAddress.trim())
+            put("password", password)
+            put("accountRole", if (accountRole == "provider") "provider" else "customer")
+            put("languagePreference", languagePreference.code)
+            put("bengaliNumerals", bengaliNumerals)
         }
+        val res = api.request("POST", "/auth/register", body = body)
+        res.optString("email", email.trim())
+    }
+
+    suspend fun verifyRegistrationOtp(email: String, otp: String): Result<UserProfile> = runCatchingRest {
+        val body = JSONObject().apply {
+            put("email", email.trim())
+            put("otp", otp.trim())
+            put("purpose", "register_verify")
+        }
+        val res = api.request("POST", "/auth/verify-otp", body = body)
+        val token = res.getString("token")
+        val user = SessionManager.parseUserObject(res.getJSONObject("user"))
+        sessionManager.saveSession(token, user)
+        user
+    }
+
+    suspend fun resendOtp(
+        email: String,
+        purpose: String,
+        languagePreference: AppLanguage
+    ): Result<String> = runCatchingRest {
+        val body = JSONObject().apply {
+            put("email", email.trim())
+            put("purpose", purpose)
+            put("languagePreference", languagePreference.code)
+        }
+        val res = api.request("POST", "/auth/resend-otp", body = body)
+        res.optString("message", "OTP sent")
+    }
+
+    suspend fun forgotPassword(email: String, languagePreference: AppLanguage): Result<String> = runCatchingRest {
+        val body = JSONObject().apply {
+            put("email", email.trim())
+            put("languagePreference", languagePreference.code)
+        }
+        val res = api.request("POST", "/auth/forgot-password", body = body)
+        res.optString("message", "Reset OTP sent")
+    }
+
+    suspend fun resetPassword(email: String, otp: String, newPassword: String): Result<String> = runCatchingRest {
+        val body = JSONObject().apply {
+            put("email", email.trim())
+            put("otp", otp.trim())
+            put("newPassword", newPassword)
+        }
+        val res = api.request("POST", "/auth/reset-password", body = body)
+        res.optString("message", "Password reset successful")
+    }
+
+    suspend fun logout() {
+        try {
+            val token = sessionManager.getToken()
+            if (!token.isNullOrBlank()) {
+                api.request("POST", "/auth/logout", token = token)
+            }
+        } catch (_: Exception) {
+        } finally {
+            sessionManager.clearSession()
+        }
+    }
+
+    // ---------- User Profile, Preferences & Notifications ----------
+
+    suspend fun fetchMe(): Result<UserProfile> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/users/me", token = token)
+        val user = SessionManager.parseUserObject(res.getJSONObject("user"))
+        sessionManager.updateUser(user)
+        user
     }
 
     suspend fun saveProfileDetails(
-        uid: String,
         fullName: String,
         mobileNumber: String,
         fullAddress: String,
-        accountRole: String
-    ): Result<Unit> {
-        val docPath = "users/$uid"
-        return try {
-            val currentUid = requireUserId()
-            check(currentUid == uid) { "Signed-in user mismatch" }
-            val safeRole = if (accountRole == "provider") "provider" else "customer"
-            db.collection("users").document(uid).update(
-                mapOf(
-                    "fullName" to fullName.trim().take(80),
-                    "mobileNumber" to mobileNumber.trim().take(20),
-                    "fullAddress" to fullAddress.trim().take(250),
-                    "accountRole" to safeRole,
-                    "profileCompleted" to true,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docPath)
-            Result.failure(e)
+        pushEnabled: Boolean? = null,
+        emailEnabled: Boolean? = null
+    ): Result<UserProfile> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply {
+            put("fullName", fullName.trim().take(120))
+            put("mobileNumber", mobileNumber.trim().take(20))
+            put("fullAddress", fullAddress.trim().take(400))
+            if (pushEnabled != null) put("pushNotificationsEnabled", pushEnabled)
+            if (emailEnabled != null) put("emailNotificationsEnabled", emailEnabled)
         }
+        val res = api.request("PATCH", "/users/me", token = token, body = body)
+        val user = SessionManager.parseUserObject(res.getJSONObject("user"))
+        sessionManager.updateUser(user)
+        user
     }
 
     suspend fun syncLanguagePreference(
-        uid: String,
         language: AppLanguage,
         bengaliNumerals: Boolean
-    ): Result<Unit> {
-        val docPath = "users/$uid"
-        return try {
-            val currentUid = requireUserId()
-            check(currentUid == uid)
-            db.collection("users").document(uid).update(
-                mapOf(
-                    "languagePreference" to language.code,
-                    "bengaliNumerals" to bengaliNumerals,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docPath)
-            Result.failure(e)
+    ): Result<UserProfile> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply {
+            put("languagePreference", language.code)
+            put("bengaliNumerals", bengaliNumerals)
         }
+        val res = api.request("PATCH", "/users/me/language", token = token, body = body)
+        val user = SessionManager.parseUserObject(res.getJSONObject("user"))
+        sessionManager.updateUser(user)
+        user
     }
 
-    suspend fun updateNotificationPreferences(
-        uid: String,
-        pushEnabled: Boolean,
-        emailEnabled: Boolean
-    ): Result<Unit> {
-        val docPath = "users/$uid"
-        return try {
-            val currentUid = requireUserId()
-            check(currentUid == uid)
-            db.collection("users").document(uid).update(
-                mapOf(
-                    "pushNotificationsEnabled" to pushEnabled,
-                    "emailNotificationsEnabled" to emailEnabled,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docPath)
-            Result.failure(e)
+    suspend fun registerFcmToken(fcmToken: String): Result<Unit> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply {
+            put("fcmToken", fcmToken)
+            put("platform", "android")
         }
+        api.request("POST", "/users/me/fcm-token", token = token, body = body)
     }
 
-    fun observeActiveServices(): Flow<List<ServiceOffering>> = flow {
-        requireUserId()
-        val query = db.collection("services").whereEqualTo("active", true)
-        emitAll(
-            query.snapshots()
-                .map { snap ->
-                    val cloudItems = snap.toObjects(
-                        ServiceOffering::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    )
-                    if (cloudItems.isEmpty()) DefaultServiceCatalog.items else cloudItems
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser != null) {
-                        handleFirestoreError(toLog, OperationType.LIST, "services")
-                    }
-                    throw error
-                }
-        )
+    suspend fun fetchNotifications(): Result<List<UserNotification>> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/users/notifications", token = token)
+        val arr = res.optJSONArray("notifications") ?: JSONArray()
+        (0 until arr.length()).map { parseNotification(arr.getJSONObject(it)) }
     }
 
-    fun observeAllServicesAdmin(): Flow<List<ServiceOffering>> = flow {
-        requireUserId()
-        val query = db.collection("services")
-        emitAll(
-            query.snapshots()
-                .map { snap ->
-                    snap.toObjects(
-                        ServiceOffering::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    )
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser != null) {
-                        handleFirestoreError(toLog, OperationType.LIST, "services")
-                    }
-                    throw error
-                }
-        )
+    suspend fun markNotificationRead(notificationId: String): Result<Unit> = runCatchingRest {
+        val token = requireToken()
+        api.request("PATCH", "/users/notifications/$notificationId/read", token = token)
     }
 
-    suspend fun saveServiceAdmin(service: ServiceOffering, isNew: Boolean): Result<Unit> {
-        val docRef = if (isNew || service.id.isBlank()) {
-            db.collection("services").document()
-        } else {
-            db.collection("services").document(service.id)
-        }
-        return try {
-            requireUserId()
-            if (isNew || service.id.isBlank()) {
-                val payload = mapOf(
-                    "categoryKey" to service.categoryKey,
-                    "titleBn" to service.titleBn.trim().take(100),
-                    "titleEn" to service.titleEn.trim().take(100),
-                    "descriptionBn" to service.descriptionBn.trim().take(500),
-                    "descriptionEn" to service.descriptionEn.trim().take(500),
-                    "providerNameBn" to service.providerNameBn.trim().ifBlank { "কাজের মানুষ কর্মী" }.take(80),
-                    "providerNameEn" to service.providerNameEn.trim().ifBlank { "Kajer Manus Pro" }.take(80),
-                    "providerAreaBn" to service.providerAreaBn.trim().ifBlank { "কলকাতা" }.take(80),
-                    "providerAreaEn" to service.providerAreaEn.trim().ifBlank { "Kolkata" }.take(80),
-                    "providerId" to service.providerId.ifBlank { "demo_provider" }.take(128),
-                    "basePriceInr" to service.basePriceInr.coerceIn(0L, 100000L),
-                    "durationMinutes" to service.durationMinutes.coerceIn(15L, 720L),
-                    "rating" to service.rating.coerceIn(0.0, 5.0),
-                    "active" to service.active,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                docRef.set(payload).await()
-            } else {
-                docRef.update(
-                    mapOf(
-                        "categoryKey" to service.categoryKey,
-                        "titleBn" to service.titleBn.trim().take(100),
-                        "titleEn" to service.titleEn.trim().take(100),
-                        "descriptionBn" to service.descriptionBn.trim().take(500),
-                        "descriptionEn" to service.descriptionEn.trim().take(500),
-                        "providerNameBn" to service.providerNameBn.trim().take(80),
-                        "providerNameEn" to service.providerNameEn.trim().take(80),
-                        "providerAreaBn" to service.providerAreaBn.trim().take(80),
-                        "providerAreaEn" to service.providerAreaEn.trim().take(80),
-                        "basePriceInr" to service.basePriceInr.coerceIn(0L, 100000L),
-                        "durationMinutes" to service.durationMinutes.coerceIn(15L, 720L),
-                        "active" to service.active,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
+    // ---------- Services & Provider Profile ----------
+
+    suspend fun fetchActiveServices(category: String? = null, query: String? = null): Result<List<ServiceOffering>> =
+        runCatchingRest {
+            val params = buildMap {
+                if (!category.isNullOrBlank()) put("category", category)
+                if (!query.isNullOrBlank()) put("q", query)
             }
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docRef.path)
-            Result.failure(e)
+            val res = api.request("GET", "/services", queryParams = params)
+            val arr = res.optJSONArray("services") ?: JSONArray()
+            (0 until arr.length()).map { parseService(arr.getJSONObject(it)) }
         }
+
+    suspend fun fetchMyProviderProfile(): Result<ProviderProfile?> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/provider/me", token = token)
+        val obj = res.optJSONObject("profile")
+        if (obj == null || res.isNull("profile")) null else parseProvider(obj)
     }
 
-    suspend fun seedDefaultServicesAdmin(): Result<Unit> {
-        return try {
-            requireUserId()
-            val batch = db.batch()
-            for (item in DefaultServiceCatalog.items) {
-                val docRef = db.collection("services").document(item.id)
-                val payload = mapOf(
-                    "categoryKey" to item.categoryKey,
-                    "titleBn" to item.titleBn,
-                    "titleEn" to item.titleEn,
-                    "descriptionBn" to item.descriptionBn,
-                    "descriptionEn" to item.descriptionEn,
-                    "providerNameBn" to item.providerNameBn,
-                    "providerNameEn" to item.providerNameEn,
-                    "providerAreaBn" to item.providerAreaBn,
-                    "providerAreaEn" to item.providerAreaEn,
-                    "providerId" to item.providerId,
-                    "basePriceInr" to item.basePriceInr,
-                    "durationMinutes" to item.durationMinutes,
-                    "rating" to item.rating,
-                    "active" to item.active,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-                batch.set(docRef, payload)
-            }
-            batch.commit().await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, "services")
-            Result.failure(e)
+    suspend fun applyProviderProfile(
+        bioBn: String,
+        bioEn: String,
+        serviceCategories: List<String>,
+        serviceLocationBn: String,
+        serviceLocationEn: String,
+        experienceYears: Int,
+        isAvailable: Boolean
+    ): Result<ProviderProfile> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply {
+            put("bioBn", bioBn.trim())
+            put("bioEn", bioEn.trim())
+            put("photoUrl", "")
+            put("serviceCategories", JSONArray(serviceCategories))
+            put("serviceLocationBn", serviceLocationBn.trim())
+            put("serviceLocationEn", serviceLocationEn.trim())
+            put("experienceYears", experienceYears.coerceIn(0, 60))
+            put("isAvailable", isAvailable)
         }
+        val res = api.request("POST", "/provider/apply", token = token, body = body)
+        parseProvider(res.getJSONObject("profile"))
     }
 
-    fun observeCustomerBookings(customerId: String): Flow<List<ServiceBooking>> = flow {
-        val uid = requireUserId()
-        check(uid == customerId)
-        val query = db.collection("bookings").whereEqualTo("customerId", uid)
-        emitAll(
-            query.snapshots()
-                .map { snap ->
-                    snap.toObjects(
-                        ServiceBooking::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    ).sortedByDescending { it.createdAt }
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
-                        handleFirestoreError(toLog, OperationType.LIST, "bookings")
-                    }
-                    throw error
-                }
-        )
+    suspend fun toggleProviderAvailability(isAvailable: Boolean): Result<ProviderProfile> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply { put("isAvailable", isAvailable) }
+        val res = api.request("PATCH", "/provider/me/availability", token = token, body = body)
+        parseProvider(res.getJSONObject("profile"))
     }
 
-    fun observeProviderBookings(providerId: String): Flow<List<ServiceBooking>> = flow {
-        val uid = requireUserId()
-        check(uid == providerId)
-        val query = db.collection("bookings").whereEqualTo("providerId", uid)
-        emitAll(
-            query.snapshots()
-                .map { snap ->
-                    snap.toObjects(
-                        ServiceBooking::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    ).sortedByDescending { it.createdAt }
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
-                        handleFirestoreError(toLog, OperationType.LIST, "bookings")
-                    }
-                    throw error
-                }
-        )
-    }
-
-    fun observeAllBookingsAdmin(): Flow<List<ServiceBooking>> = flow {
-        requireUserId()
-        emitAll(
-            db.collection("bookings").snapshots()
-                .map { snap ->
-                    snap.toObjects(
-                        ServiceBooking::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    ).sortedByDescending { it.createdAt }
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser != null) {
-                        handleFirestoreError(toLog, OperationType.LIST, "bookings")
-                    }
-                    throw error
-                }
-        )
-    }
-
-    fun observeAllUsersAdmin(): Flow<List<UserProfile>> = flow {
-        requireUserId()
-        emitAll(
-            db.collection("users").snapshots()
-                .map { snap ->
-                    snap.toObjects(
-                        UserProfile::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    )
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser != null) {
-                        handleFirestoreError(toLog, OperationType.LIST, "users")
-                    }
-                    throw error
-                }
-        )
-    }
+    // ---------- Bookings, Reviews & Support ----------
 
     suspend fun createBooking(
-        service: ServiceOffering,
+        serviceId: String,
         customerName: String,
         customerPhone: String,
         serviceAddress: String,
         scheduledDate: String,
         scheduledSlot: String,
         notes: String,
-        language: AppLanguage,
-        assignSelfAsDemoProvider: Boolean
-    ): Result<String> {
-        var docPath = "bookings"
-        return try {
-            val uid = requireUserId()
-            val docRef = db.collection("bookings").document()
-            docPath = docRef.path
-            val resolvedProviderId = if (assignSelfAsDemoProvider) uid else service.providerId.ifBlank { uid }
-            val payload = mapOf(
-                "customerId" to uid,
-                "customerName" to customerName.trim().ifBlank { "Customer" }.take(80),
-                "customerPhone" to customerPhone.trim().ifBlank { "9830000000" }.take(20),
-                "serviceAddress" to serviceAddress.trim().ifBlank { "Kolkata" }.take(250),
-                "serviceId" to service.id.ifBlank { "svc_custom" }.take(128),
-                "serviceTitleBn" to service.titleBn.ifBlank { service.titleEn }.take(120),
-                "serviceTitleEn" to service.titleEn.ifBlank { service.titleBn }.take(120),
-                "categoryKey" to service.categoryKey.take(40),
-                "providerId" to resolvedProviderId.take(128),
-                "providerNameBn" to service.providerNameBn.ifBlank { service.providerNameEn }.take(80),
-                "providerNameEn" to service.providerNameEn.ifBlank { service.providerNameBn }.take(80),
-                "scheduledDate" to scheduledDate.trim().take(40),
-                "scheduledSlot" to scheduledSlot.trim().take(60),
-                "amountInr" to service.basePriceInr.coerceIn(0L, 100000L),
-                "notes" to notes.trim().take(400),
-                "status" to "pending",
-                "languageAtBooking" to language.code,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp()
-            )
-            docRef.set(payload).await()
-
-            // Create language-aware notification in user's notifications subcollection
-            val notifRef = db.collection("users").document(uid).collection("notifications").document()
-            notifRef.set(
-                mapOf(
-                    "userId" to uid,
-                    "titleBn" to "বুকিং জমা হয়েছে: ${service.titleBn}".take(140),
-                    "titleEn" to "Booking Submitted: ${service.titleEn}".take(140),
-                    "bodyBn" to "আপনার ${service.titleBn} বুকিংটি এখন অপেক্ষমান অবস্থায় আছে।".take(400),
-                    "bodyEn" to "Your ${service.titleEn} booking is currently pending confirmation.".take(400),
-                    "bookingId" to docRef.id,
-                    "type" to "booking_created",
-                    "readFlag" to false,
-                    "languageCode" to language.code,
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-
-            Result.success(docRef.id)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, docPath)
-            Result.failure(e)
+        language: AppLanguage
+    ): Result<ServiceBooking> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply {
+            put("serviceId", serviceId)
+            put("customerName", customerName.trim())
+            put("customerPhone", customerPhone.trim())
+            put("serviceAddress", serviceAddress.trim())
+            put("preferredDate", scheduledDate.trim())
+            put("preferredTime", scheduledSlot.trim())
+            put("instructions", notes.trim())
+            put("languageAtBooking", language.code)
         }
+        val res = api.request("POST", "/bookings", token = token, body = body)
+        parseBooking(res.getJSONObject("booking"))
+    }
+
+    suspend fun fetchMyBookings(): Result<List<ServiceBooking>> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/bookings/me", token = token)
+        val arr = res.optJSONArray("bookings") ?: JSONArray()
+        (0 until arr.length()).map { parseBooking(arr.getJSONObject(it)) }
+    }
+
+    suspend fun fetchProviderBookings(): Result<Pair<List<ServiceBooking>, Boolean>> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/bookings/provider", token = token)
+        val approved = res.optBoolean("approved", false)
+        val arr = res.optJSONArray("bookings") ?: JSONArray()
+        val list = (0 until arr.length()).map { parseBooking(arr.getJSONObject(it)) }
+        list to approved
     }
 
     suspend fun updateBookingStatus(
-        booking: ServiceBooking,
-        newStatus: BookingStatus,
-        notifyLanguage: AppLanguage
-    ): Result<Unit> {
-        val docPath = "bookings/${booking.id}"
-        return try {
-            val uid = requireUserId()
-            require(booking.id.isNotBlank())
-            db.collection("bookings").document(booking.id).update(
-                mapOf(
-                    "status" to newStatus.key,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-
-            // Generate bilingual status notification on customer's feed if current user owns it
-            if (booking.customerId == uid) {
-                val (bnMsg, enMsg) = when (newStatus) {
-                    BookingStatus.ACCEPTED -> "আপনার বুকিং গ্রহণ করা হয়েছে।" to "Your booking has been accepted."
-                    BookingStatus.REJECTED -> "আপনার বুকিং প্রত্যাখ্যান করা হয়েছে।" to "Your booking was declined by the provider."
-                    BookingStatus.IN_PROGRESS -> "আপনার সেবার কাজ শুরু হয়েছে।" to "Work on your booking is now in progress."
-                    BookingStatus.COMPLETED -> "আপনার সেবার কাজ সম্পন্ন হয়েছে।" to "Your service booking has been completed."
-                    BookingStatus.CANCELLED -> "আপনার বুকিং বাতিল করা হয়েছে।" to "Your booking has been cancelled."
-                    BookingStatus.PENDING -> "আপনার বুকিং অপেক্ষমান আছে।" to "Your booking is pending."
-                }
-                val notifRef = db.collection("users").document(uid).collection("notifications").document()
-                notifRef.set(
-                    mapOf(
-                        "userId" to uid,
-                        "titleBn" to booking.serviceTitleBn.take(140),
-                        "titleEn" to booking.serviceTitleEn.take(140),
-                        "bodyBn" to bnMsg,
-                        "bodyEn" to enMsg,
-                        "bookingId" to booking.id,
-                        "type" to "booking_status",
-                        "readFlag" to false,
-                        "languageCode" to notifyLanguage.code,
-                        "createdAt" to FieldValue.serverTimestamp()
-                    )
-                ).await()
-            }
-
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docPath)
-            Result.failure(e)
-        }
+        bookingId: String,
+        newStatus: BookingStatus
+    ): Result<ServiceBooking> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply { put("status", newStatus.key) }
+        val res = api.request("PATCH", "/bookings/$bookingId/status", token = token, body = body)
+        parseBooking(res.getJSONObject("booking"))
     }
 
-    fun observeNotifications(userId: String): Flow<List<UserNotification>> = flow {
-        val uid = requireUserId()
-        check(uid == userId)
-        val colRef = db.collection("users").document(uid).collection("notifications")
-        emitAll(
-            colRef.snapshots()
-                .map { snap ->
-                    snap.toObjects(
-                        UserNotification::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    ).sortedByDescending { it.createdAt }
-                }
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val toLog = fsErr ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
-                        handleFirestoreError(toLog, OperationType.LIST, colRef.path)
-                    }
-                    throw error
-                }
-        )
-    }
-
-    suspend fun markNotificationRead(userId: String, notificationId: String): Result<Unit> {
-        val docPath = "users/$userId/notifications/$notificationId"
-        return try {
-            val uid = requireUserId()
-            check(uid == userId)
-            db.collection("users").document(uid)
-                .collection("notifications").document(notificationId)
-                .update(mapOf("readFlag" to true))
-                .await()
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.UPDATE, docPath)
-            Result.failure(e)
+    suspend fun submitReview(
+        bookingId: String,
+        rating: Int,
+        comment: String
+    ): Result<Unit> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply {
+            put("bookingId", bookingId)
+            put("rating", rating.coerceIn(1, 5))
+            put("comment", comment.trim())
         }
+        api.request("POST", "/reviews", token = token, body = body)
     }
 
     suspend fun submitSupportTicket(
-        userId: String,
+        name: String,
+        email: String,
         subject: String,
         message: String,
         language: AppLanguage
-    ): Result<Unit> {
-        val docRef = db.collection("users").document(userId).collection("support_tickets").document()
+    ): Result<Unit> = runCatchingRest {
+        val token = sessionManager.getToken()
+        val body = JSONObject().apply {
+            if (name.isNotBlank()) put("name", name.trim())
+            if (email.isNotBlank()) put("email", email.trim())
+            put("subject", subject.trim())
+            put("message", message.trim())
+            put("languageCode", language.code)
+        }
+        api.request("POST", "/support/contact", token = token, body = body)
+    }
+
+    // ---------- Admin Endpoints ----------
+
+    suspend fun fetchAdminStats(): Result<AdminStats> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/admin/stats", token = token)
+        val s = res.getJSONObject("stats")
+        AdminStats(
+            totalUsers = s.optInt("totalUsers"),
+            pendingProviders = s.optInt("pendingProviders"),
+            totalBookings = s.optInt("totalBookings"),
+            pendingBookings = s.optInt("pendingBookings"),
+            totalCategories = s.optInt("totalCategories", 12),
+            openComplaints = s.optInt("openComplaints")
+        )
+    }
+
+    suspend fun fetchAdminProviders(): Result<List<ProviderProfile>> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/admin/providers", token = token)
+        val arr = res.optJSONArray("providers") ?: JSONArray()
+        (0 until arr.length()).map { parseProvider(arr.getJSONObject(it)) }
+    }
+
+    suspend fun approveProviderAdmin(providerProfileId: String, decision: String): Result<Unit> = runCatchingRest {
+        val token = requireToken()
+        val body = JSONObject().apply { put("decision", decision) }
+        api.request("PATCH", "/admin/providers/$providerProfileId/approve", token = token, body = body)
+    }
+
+    suspend fun fetchAdminBookings(): Result<List<ServiceBooking>> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/admin/bookings", token = token)
+        val arr = res.optJSONArray("bookings") ?: JSONArray()
+        (0 until arr.length()).map { parseBooking(arr.getJSONObject(it)) }
+    }
+
+    suspend fun fetchAdminUsers(): Result<List<UserProfile>> = runCatchingRest {
+        val token = requireToken()
+        val res = api.request("GET", "/admin/users", token = token)
+        val arr = res.optJSONArray("users") ?: JSONArray()
+        (0 until arr.length()).map { SessionManager.parseUserObject(arr.getJSONObject(it)) }
+    }
+
+    suspend fun saveServiceAdmin(service: ServiceOffering, isNew: Boolean): Result<ServiceOffering> =
+        runCatchingRest {
+            val token = requireToken()
+            val body = JSONObject().apply {
+                if (!isNew && service.id.isNotBlank()) put("id", service.id)
+                put("categorySlug", service.categoryKey)
+                put("titleBn", service.titleBn.trim())
+                put("titleEn", service.titleEn.trim())
+                put("descriptionBn", service.descriptionBn.trim())
+                put("descriptionEn", service.descriptionEn.trim())
+                put("providerNameBn", service.providerNameBn.ifBlank { "কাজের মানুষ কর্মী" })
+                put("providerNameEn", service.providerNameEn.ifBlank { "Kajer Manus Pro" })
+                put("areaBn", service.providerAreaBn.ifBlank { "কলকাতা" })
+                put("areaEn", service.providerAreaEn.ifBlank { "Kolkata" })
+                put("basePriceInr", service.basePriceInr.coerceAtLeast(0L))
+                put("durationMinutes", service.durationMinutes.coerceAtLeast(15L))
+                put("isActive", service.active)
+            }
+            val res = api.request("POST", "/admin/services", token = token, body = body)
+            parseService(res.getJSONObject("service"))
+        }
+
+    // ---------- JSON Parsers & Helper ----------
+
+    private suspend fun <T> runCatchingRest(block: suspend () -> T): Result<T> {
         return try {
-            val uid = requireUserId()
-            check(uid == userId)
-            docRef.set(
-                mapOf(
-                    "userId" to uid,
-                    "subject" to subject.trim().take(120),
-                    "message" to message.trim().take(1000),
-                    "languageCode" to language.code,
-                    "status" to "open",
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
-            Result.success(Unit)
+            Result.success(block())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.CREATE, docRef.path)
             Result.failure(e)
         }
+    }
+
+    private fun parseService(o: JSONObject): ServiceOffering = ServiceOffering(
+        id = o.optString("id"),
+        categoryKey = o.optString("category_slug", "electrician"),
+        titleBn = o.optString("title_bn"),
+        titleEn = o.optString("title_en"),
+        descriptionBn = o.optString("description_bn"),
+        descriptionEn = o.optString("description_en"),
+        providerNameBn = o.optString("provider_name_bn"),
+        providerNameEn = o.optString("provider_name_en"),
+        providerAreaBn = o.optString("area_bn"),
+        providerAreaEn = o.optString("area_en"),
+        providerId = o.optString("provider_user_id"),
+        basePriceInr = o.optLong("base_price_inr"),
+        durationMinutes = o.optLong("duration_minutes", 60L),
+        rating = o.optDouble("rating", 4.8),
+        active = o.optBoolean("is_active", true)
+    )
+
+    private fun parseBooking(o: JSONObject): ServiceBooking = ServiceBooking(
+        id = o.optString("id"),
+        customerId = o.optString("customer_id"),
+        customerName = o.optString("customer_name"),
+        customerPhone = o.optString("customer_phone"),
+        serviceAddress = o.optString("service_address"),
+        serviceId = o.optString("service_id"),
+        serviceTitleBn = o.optString("service_title_bn"),
+        serviceTitleEn = o.optString("service_title_en"),
+        categoryKey = o.optString("category_slug", "electrician"),
+        providerId = o.optString("provider_id"),
+        providerNameBn = o.optString("provider_name_bn"),
+        providerNameEn = o.optString("provider_name_en"),
+        scheduledDate = o.optString("preferred_date"),
+        scheduledSlot = o.optString("preferred_time"),
+        amountInr = o.optLong("amount_inr"),
+        notes = o.optString("instructions"),
+        status = o.optString("status", "pending"),
+        languageAtBooking = o.optString("language_at_booking", "bn"),
+        hasReview = o.optBoolean("has_review", false),
+        createdAt = o.optString("created_at")
+    )
+
+    private fun parseNotification(o: JSONObject): UserNotification = UserNotification(
+        id = o.optString("id"),
+        userId = o.optString("user_id"),
+        titleBn = o.optString("title_bn"),
+        titleEn = o.optString("title_en"),
+        bodyBn = o.optString("body_bn"),
+        bodyEn = o.optString("body_en"),
+        bookingId = o.optString("booking_id"),
+        type = o.optString("type", "system"),
+        readFlag = o.optBoolean("is_read", false),
+        languageCode = o.optString("language_code", "bn"),
+        createdAt = o.optString("created_at")
+    )
+
+    private fun parseProvider(o: JSONObject): ProviderProfile {
+        val catsArr = o.optJSONArray("service_categories") ?: JSONArray()
+        val cats = (0 until catsArr.length()).map { catsArr.optString(it) }.filter { it.isNotBlank() }
+        return ProviderProfile(
+            id = o.optString("id"),
+            userId = o.optString("user_id"),
+            fullName = o.optString("full_name"),
+            email = o.optString("email"),
+            mobileNumber = o.optString("mobile_number"),
+            bioBn = o.optString("bio_bn"),
+            bioEn = o.optString("bio_en"),
+            photoUrl = o.optString("photo_url"),
+            serviceCategories = cats,
+            serviceLocationBn = o.optString("service_location_bn"),
+            serviceLocationEn = o.optString("service_location_en"),
+            experienceYears = o.optInt("experience_years", 1),
+            isAvailable = o.optBoolean("is_available", true),
+            isApproved = o.optBoolean("is_approved", false),
+            approvalStatus = o.optString("approval_status", "pending"),
+            ratingAvg = o.optDouble("rating_avg", 5.0),
+            reviewsCount = o.optInt("reviews_count", 0),
+            completedJobs = o.optInt("completed_jobs", 0)
+        )
     }
 }

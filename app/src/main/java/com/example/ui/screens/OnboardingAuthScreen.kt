@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,28 +19,37 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -48,15 +58,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.credentials.CredentialManager
 import com.example.R
-import com.example.auth.attemptAutoSignIn
-import com.example.auth.onGoogleSignInClicked
+import com.example.data.ApiException
+import com.example.data.KajerManushRepository
 import com.example.data.ServiceCategory
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
@@ -64,35 +75,37 @@ import com.example.ui.components.LanguageSelectorCard
 import com.example.ui.components.LanguageTogglePill
 import com.example.ui.components.LegalInfoDialog
 import com.example.ui.components.categoryIcon
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingAuthScreen(
+    repository: KajerManushRepository,
     currentLanguage: AppLanguage,
     onSelectLanguage: (AppLanguage) -> Unit,
     onNavigateToSignUp: () -> Unit,
     onAuthSuccess: () -> Unit
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
 
     var isLoading by rememberSaveable { mutableStateOf(false) }
     var authError by rememberSaveable { mutableStateOf<String?>(null) }
+    var infoBanner by rememberSaveable { mutableStateOf<String?>(null) }
+
+    var pendingOtpEmail by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingOtpCode by rememberSaveable { mutableStateOf("") }
+    var showForgotDialog by rememberSaveable { mutableStateOf(false) }
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
     var showTerms by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        attemptAutoSignIn(
-            context = context,
-            credentialManager = credentialManager,
-            onAuthSuccess = onAuthSuccess,
-            onUnauthenticated = {},
-            scope = scope
-        )
-    }
-
-    val cancelledMsg = t("auth.err_cancelled")
+    val invalidEmailErr = t("auth.err_email_invalid")
+    val shortPasswordErr = t("auth.err_password_short")
+    val resetSuccessMsg = t("auth.reset_password_success")
+    val otpResentMsg = t("auth.otp_resent")
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing
@@ -118,7 +131,7 @@ fun OnboardingAuthScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Header Row with Brand and Quick Toggle
                 Row(
@@ -151,13 +164,13 @@ fun OnboardingAuthScreen(
                     contentDescription = t("auth.welcome_title"),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(190.dp)
+                        .height(175.dp)
                         .clip(RoundedCornerShape(24.dp)),
                     contentScale = ContentScale.Crop
                 )
 
                 // Welcome Copy
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = t("auth.welcome_title"),
                         style = MaterialTheme.typography.headlineSmall,
@@ -176,108 +189,189 @@ fun OnboardingAuthScreen(
                     onSelectLanguage = onSelectLanguage
                 )
 
-                // Interactive Google Sign-In Button
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            authError = null
-                            isLoading = true
-                            onGoogleSignInClicked(
-                                context = context,
-                                credentialManager = credentialManager,
-                                onAuthSuccess = {
-                                    isLoading = false
-                                    onAuthSuccess()
-                                },
-                                onAuthError = { msg ->
-                                    isLoading = false
-                                    authError = msg
-                                },
-                                scope = scope,
-                                onAuthCancelled = {
-                                    isLoading = false
-                                    authError = cancelledMsg
+                // Email & Password Login Card (Unified PostgreSQL Account)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = t("auth.sign_in_tab"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it; authError = null; infoBanner = null },
+                            label = { Text(t("auth.email")) },
+                            leadingIcon = { Icon(Icons.Rounded.Email, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_email_input")
+                        )
+
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it; authError = null; infoBanner = null },
+                            label = { Text(t("auth.password")) },
+                            leadingIcon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        imageVector = if (passwordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                        contentDescription = null
+                                    )
                                 }
-                            )
-                        },
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .testTag("google_sign_in_button"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            },
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("login_password_input")
                         )
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(22.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(text = t("auth.signing_in"), style = MaterialTheme.typography.labelLarge)
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Login,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(text = t("auth.sign_in_google"), style = MaterialTheme.typography.labelLarge)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = { showForgotDialog = true }) {
+                                Text(t("auth.forgot_password"), style = MaterialTheme.typography.labelLarge)
+                            }
                         }
-                    }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.VerifiedUser,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = t("auth.otp_note"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                        infoBanner?.let { info ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = info,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
 
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = onNavigateToSignUp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("go_to_sign_up_button"),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text(
-                            text = t("auth.create_account_cta"),
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
+                        authError?.let { err ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = err,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
 
-                    authError?.let { err ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        Button(
+                            onClick = {
+                                val trimmedEmail = email.trim()
+                                when {
+                                    !trimmedEmail.contains("@") || !trimmedEmail.contains(".") -> authError = invalidEmailErr
+                                    password.isEmpty() -> authError = shortPasswordErr
+                                    else -> {
+                                        authError = null
+                                        isLoading = true
+                                        scope.launch {
+                                            val result = repository.login(trimmedEmail, password)
+                                            isLoading = false
+                                            result.onSuccess {
+                                                onAuthSuccess()
+                                            }.onFailure { err ->
+                                                if (err is ApiException && err.errorCode == "OTP_REQUIRED") {
+                                                    pendingOtpEmail = err.emailHint.ifBlank { trimmedEmail }
+                                                    repository.resendOtp(
+                                                        pendingOtpEmail!!,
+                                                        "register_verify",
+                                                        currentLanguage
+                                                    )
+                                                } else {
+                                                    authError = err.localizedMessage ?: "Sign in failed"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = !isLoading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                                .testTag("login_submit_button"),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(text = t("auth.signing_in"), style = MaterialTheme.typography.labelLarge)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Login,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(text = t("auth.sign_in"), style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.VerifiedUser,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = t("auth.otp_note"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onNavigateToSignUp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("go_to_sign_up_button"),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
                             Text(
-                                text = err,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(12.dp)
+                                text = t("auth.create_account_cta"),
+                                style = MaterialTheme.typography.labelLarge
                             )
                         }
                     }
                 }
 
-                // Popular Service Categories Preview (Zero Firestore reads before auth)
+                // All 12 Service Categories Preview
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = t("auth.preview_services"),
@@ -320,6 +414,87 @@ fun OnboardingAuthScreen(
         }
     }
 
+    pendingOtpEmail?.let { targetEmail ->
+        var otpErr by rememberSaveable { mutableStateOf<String?>(null) }
+        var otpBusy by rememberSaveable { mutableStateOf(false) }
+        val invalidOtpErr = t("auth.err_otp_invalid")
+
+        AlertDialog(
+            onDismissRequest = { pendingOtpEmail = null },
+            title = { Text(t("auth.otp_title")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("${t("auth.otp_subtitle")} $targetEmail", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = pendingOtpCode,
+                        onValueChange = { pendingOtpCode = it.filter(Char::isDigit).take(6); otpErr = null },
+                        label = { Text(t("auth.otp_code")) },
+                        leadingIcon = { Icon(Icons.Rounded.Pin, contentDescription = null) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    otpErr?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                repository.resendOtp(targetEmail, "register_verify", currentLanguage)
+                                infoBanner = otpResentMsg
+                            }
+                        }
+                    ) {
+                        Text(t("auth.resend_otp_btn"))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !otpBusy,
+                    onClick = {
+                        if (pendingOtpCode.length != 6) {
+                            otpErr = invalidOtpErr
+                        } else {
+                            otpBusy = true
+                            scope.launch {
+                                val res = repository.verifyRegistrationOtp(targetEmail, pendingOtpCode)
+                                otpBusy = false
+                                res.onSuccess {
+                                    pendingOtpEmail = null
+                                    onAuthSuccess()
+                                }.onFailure { err ->
+                                    otpErr = err.localizedMessage ?: invalidOtpErr
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text(t("auth.verify_otp_btn"))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingOtpEmail = null }) {
+                    Text(t("common.cancel"))
+                }
+            }
+        )
+    }
+
+    if (showForgotDialog) {
+        ForgotPasswordDialog(
+            repository = repository,
+            currentLanguage = currentLanguage,
+            initialEmail = email,
+            onDismiss = { showForgotDialog = false },
+            onPasswordReset = { resetEmail ->
+                email = resetEmail
+                showForgotDialog = false
+                infoBanner = resetSuccessMsg
+            }
+        )
+    }
+
     if (showPrivacy) {
         LegalInfoDialog(
             title = t("settings.privacy_title"),
@@ -334,4 +509,109 @@ fun OnboardingAuthScreen(
             onDismiss = { showTerms = false }
         )
     }
+}
+
+@Composable
+private fun ForgotPasswordDialog(
+    repository: KajerManushRepository,
+    currentLanguage: AppLanguage,
+    initialEmail: String,
+    onDismiss: () -> Unit,
+    onPasswordReset: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var step by rememberSaveable { mutableStateOf(1) }
+    var targetEmail by rememberSaveable { mutableStateOf(initialEmail) }
+    var otp by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+    var busy by rememberSaveable { mutableStateOf(false) }
+    var errorMsg by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val invalidEmailErr = t("auth.err_email_invalid")
+    val invalidOtpErr = t("auth.err_otp_invalid")
+    val shortPasswordErr = t("auth.err_password_short")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (step == 1) t("auth.forgot_password") else t("auth.reset_password_title"))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (step == 1) {
+                    Text(t("auth.forgot_password_desc"), style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = targetEmail,
+                        onValueChange = { targetEmail = it; errorMsg = null },
+                        label = { Text(t("auth.email")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Text("${t("auth.otp_subtitle")} $targetEmail", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = otp,
+                        onValueChange = { otp = it.filter(Char::isDigit).take(6); errorMsg = null },
+                        label = { Text(t("auth.otp_code")) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = { newPassword = it; errorMsg = null },
+                        label = { Text(t("auth.new_password")) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                errorMsg?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy,
+                onClick = {
+                    val trimmed = targetEmail.trim()
+                    if (step == 1) {
+                        if (!trimmed.contains("@") || !trimmed.contains(".")) {
+                            errorMsg = invalidEmailErr
+                        } else {
+                            busy = true
+                            scope.launch {
+                                val res = repository.forgotPassword(trimmed, currentLanguage)
+                                busy = false
+                                res.onSuccess { step = 2 }.onFailure { errorMsg = it.localizedMessage }
+                            }
+                        }
+                    } else {
+                        when {
+                            otp.length != 6 -> errorMsg = invalidOtpErr
+                            newPassword.length < 8 -> errorMsg = shortPasswordErr
+                            else -> {
+                                busy = true
+                                scope.launch {
+                                    val res = repository.resetPassword(trimmed, otp, newPassword)
+                                    busy = false
+                                    res.onSuccess { onPasswordReset(trimmed) }
+                                        .onFailure { errorMsg = it.localizedMessage }
+                                }
+                            }
+                        }
+                    }
+                }
+            ) {
+                Text(if (step == 1) t("auth.send_reset_otp") else t("auth.reset_password_btn"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(t("common.cancel"))
+            }
+        }
+    )
 }

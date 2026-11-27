@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /provider/dashboard
+
+Sitemap: https://www.kajermanus.in/sitemap.xml

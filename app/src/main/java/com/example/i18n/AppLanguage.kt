@@ -4,11 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
-import com.google.firebase.Timestamp
 import org.json.JSONObject
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 enum class AppLanguage(val code: String, val nativeLabel: String) {
     BN("bn", "বাংলা"),
@@ -98,8 +99,8 @@ data class BilingualConfig(
         return formatDigits(raw)
     }
 
-    fun formatTimestamp(ts: Timestamp?): String {
-        val date = (ts ?: Timestamp.now()).toDate()
+    fun formatTimestamp(isoTimestamp: String?): String {
+        val date = parseIsoDate(isoTimestamp) ?: Date()
         val locale = if (language == AppLanguage.BN) {
             Locale.Builder().setLanguage("bn").setRegion("IN").build()
         } else {
@@ -108,6 +109,27 @@ data class BilingualConfig(
         val pattern = "dd MMM yyyy, hh:mm a"
         val formatted = SimpleDateFormat(pattern, locale).format(date)
         return formatDigits(formatted)
+    }
+
+    private fun parseIsoDate(raw: String?): Date? {
+        if (raw.isNullOrBlank()) return null
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd HH:mm:ss"
+        )
+        for (pattern in patterns) {
+            try {
+                val sdf = SimpleDateFormat(pattern, Locale.US)
+                sdf.timeZone = TimeZone.getTimeZone("UTC")
+                val parsed = sdf.parse(raw)
+                if (parsed != null) return parsed
+            } catch (_: Exception) {
+            }
+        }
+        return null
     }
 }
 

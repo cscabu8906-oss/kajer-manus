@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +24,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ContactSupport
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,10 +52,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.data.UserProfile
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
-import com.example.ui.components.AccountRoleSelector
 import com.example.ui.components.ContactSupportDialog
 import com.example.ui.components.LanguageSelectorCard
 import com.example.ui.components.LegalInfoDialog
@@ -60,18 +69,22 @@ fun ProfileSettingsScreen(
     onSelectLanguage: (AppLanguage) -> Unit,
     onToggleBengaliNumerals: (Boolean) -> Unit,
     onUpdateNotificationPrefs: (push: Boolean, email: Boolean) -> Unit,
-    onSaveProfile: (name: String, mobile: String, address: String, role: String) -> Unit,
+    onSaveProfile: (name: String, mobile: String, address: String) -> Unit,
     onSubmitSupportTicket: (subject: String, message: String, onDone: () -> Unit) -> Unit,
     onSignOut: () -> Unit
 ) {
     var fullName by rememberSaveable(profile?.userId, profile?.fullName) { mutableStateOf(profile?.fullName.orEmpty()) }
     var mobile by rememberSaveable(profile?.userId, profile?.mobileNumber) { mutableStateOf(profile?.mobileNumber.orEmpty()) }
     var address by rememberSaveable(profile?.userId, profile?.fullAddress) { mutableStateOf(profile?.fullAddress.orEmpty()) }
-    var role by rememberSaveable(profile?.userId, profile?.accountRole) { mutableStateOf(profile?.accountRole ?: "customer") }
 
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
     var showTerms by rememberSaveable { mutableStateOf(false) }
+    var showCancellation by rememberSaveable { mutableStateOf(false) }
     var showContact by rememberSaveable { mutableStateOf(false) }
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -90,14 +103,12 @@ fun ProfileSettingsScreen(
                 style = MaterialTheme.typography.headlineSmall
             )
 
-            // Language Switcher Card (Profile & App Settings)
             LanguageSelectorCard(
                 currentLanguage = currentLanguage,
                 onSelectLanguage = onSelectLanguage,
                 showSyncedNote = true
             )
 
-            // Bengali Numerals Toggle Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -123,7 +134,6 @@ fun ProfileSettingsScreen(
                 }
             }
 
-            // Profile Account Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -133,7 +143,33 @@ fun ProfileSettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(t("settings.account_section"), style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(t("settings.account_section"), style = MaterialTheme.typography.titleMedium)
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Rounded.Badge, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    text = if (profile?.accountRole == "provider") t("auth.role_provider")
+                                    else if (profile?.accountRole == "admin") t("nav.admin")
+                                    else t("auth.role_customer"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = fullName,
@@ -170,16 +206,9 @@ fun ProfileSettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    AccountRoleSelector(
-                        selectedRole = role,
-                        onSelectRole = { role = it },
-                        customerTestTag = "settings_role_customer",
-                        providerTestTag = "settings_role_provider"
-                    )
-
                     Button(
-                        onClick = { onSaveProfile(fullName, mobile, address, role) },
-                        enabled = !isMutating && fullName.isNotBlank() && mobile.length >= 5 && address.isNotBlank(),
+                        onClick = { onSaveProfile(fullName, mobile, address) },
+                        enabled = !isMutating && fullName.isNotBlank() && mobile.length >= 10 && address.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp)
                     ) {
@@ -188,7 +217,6 @@ fun ProfileSettingsScreen(
                 }
             }
 
-            // Notification Preferences
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -228,10 +256,20 @@ fun ProfileSettingsScreen(
                             onCheckedChange = { onUpdateNotificationPrefs(pushEnabled, it) }
                         )
                     }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        OutlinedButton(
+                            onClick = { notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Rounded.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(t("settings.push_permission_grant"))
+                        }
+                    }
                 }
             }
 
-            // Legal & Contact Support
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -267,10 +305,31 @@ fun ProfileSettingsScreen(
                             Text(t("nav.terms"))
                         }
                     }
+
+                    OutlinedButton(
+                        onClick = { showCancellation = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.Policy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(t("nav.cancellation"))
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Icon(Icons.Rounded.Dns, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = "${t("settings.api_server_label")}: ${BuildConfig.API_BASE_URL}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
-            // Sign Out
             Button(
                 onClick = onSignOut,
                 colors = ButtonDefaults.buttonColors(
@@ -304,6 +363,13 @@ fun ProfileSettingsScreen(
             title = t("settings.terms_title"),
             body = t("settings.terms_body"),
             onDismiss = { showTerms = false }
+        )
+    }
+    if (showCancellation) {
+        LegalInfoDialog(
+            title = t("settings.cancellation_title"),
+            body = t("settings.cancellation_body"),
+            onDismiss = { showCancellation = false }
         )
     }
     if (showContact) {

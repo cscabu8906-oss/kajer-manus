@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import com.example.data.UserProfile
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
-import com.example.ui.components.AccountRoleSelector
 import com.example.ui.components.LanguageTogglePill
 
 @Composable
@@ -53,12 +52,11 @@ fun ProfileCompletionScreen(
     currentLanguage: AppLanguage,
     isSaving: Boolean,
     onSelectLanguage: (AppLanguage) -> Unit,
-    onSaveRegistration: (fullName: String, mobile: String, address: String, role: String) -> Unit
+    onSaveRegistration: (fullName: String, mobile: String, address: String) -> Unit
 ) {
     var fullName by rememberSaveable(profile.userId) { mutableStateOf(profile.fullName) }
     var mobile by rememberSaveable(profile.userId) { mutableStateOf(profile.mobileNumber) }
     var address by rememberSaveable(profile.userId) { mutableStateOf(profile.fullAddress) }
-    var role by rememberSaveable(profile.userId) { mutableStateOf(profile.accountRole.ifBlank { "customer" }) }
     var validationErrorKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     Scaffold(
@@ -153,13 +151,6 @@ fun ProfileCompletionScreen(
                         .testTag("register_address_input")
                 )
 
-                AccountRoleSelector(
-                    selectedRole = role,
-                    onSelectRole = { role = it },
-                    customerTestTag = "complete_role_customer",
-                    providerTestTag = "complete_role_provider"
-                )
-
                 validationErrorKey?.let { key ->
                     Text(
                         text = t(key),
@@ -173,10 +164,10 @@ fun ProfileCompletionScreen(
                 Button(
                     onClick = {
                         when {
-                            fullName.trim().isEmpty() -> validationErrorKey = "auth.err_name_required"
+                            fullName.trim().length < 2 -> validationErrorKey = "auth.err_name_required"
                             mobile.filter { it.isDigit() }.length < 10 -> validationErrorKey = "auth.err_mobile_invalid"
                             address.trim().length < 4 -> validationErrorKey = "auth.err_address_required"
-                            else -> onSaveRegistration(fullName, mobile, address, role)
+                            else -> onSaveRegistration(fullName, mobile, address)
                         }
                     },
                     enabled = !isSaving,

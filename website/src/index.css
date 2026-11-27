@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html[lang='bn'] body {
+  font-family: 'Noto Sans Bengali', 'Hind Siliguri', sans-serif;
+}
+
+html[lang='en'] body {
+  font-family: 'Inter', 'Noto Sans Bengali', system-ui, sans-serif;
+}
+
+.km-gradient-hero {
+  background: linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 45%, #0F5C4D 100%);
+}

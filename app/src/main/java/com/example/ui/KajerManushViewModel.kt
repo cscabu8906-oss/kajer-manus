@@ -1,29 +1,20 @@
 package com.example.ui
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.AdminStats
 import com.example.data.BookingStatus
 import com.example.data.KajerManushRepository
+import com.example.data.ProviderProfile
 import com.example.data.ServiceBooking
 import com.example.data.ServiceOffering
 import com.example.data.UserNotification
 import com.example.data.UserProfile
 import com.example.i18n.AppLanguage
 import com.example.i18n.LanguagePreferencesStore
-import com.google.firebase.firestore.FirebaseFirestoreException
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed interface UiState<out T> {
@@ -32,23 +23,51 @@ sealed interface UiState<out T> {
     data class Error(val message: String) : UiState<Nothing>
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class KajerManushViewModel(
     private val repository: KajerManushRepository,
     private val prefsStore: LanguagePreferencesStore,
     val currentUserId: String,
-    private val initialDisplayName: String,
-    private val initialEmail: String,
-    initialLanguage: AppLanguage,
-    initialBengaliNumerals: Boolean,
-    private val pendingSignUpDraft: com.example.data.PendingSignUpDraft? = null,
-    private val onSignUpDraftConsumed: () -> Unit = {}
+    initialUser: UserProfile
 ) : ViewModel() {
 
-    private var hasSyncedInitialServerLanguage = false
+    private val _userProfileState = MutableStateFlow<UiState<UserProfile?>>(UiState.Success(initialUser))
+    val userProfileState: StateFlow<UiState<UserProfile?>> = _userProfileState.asStateFlow()
 
-    private val _isAdmin = MutableStateFlow(false)
+    private val _servicesState = MutableStateFlow<UiState<List<ServiceOffering>>>(UiState.Loading)
+    val servicesState: StateFlow<UiState<List<ServiceOffering>>> = _servicesState.asStateFlow()
+
+    private val _customerBookingsState = MutableStateFlow<UiState<List<ServiceBooking>>>(UiState.Loading)
+    val customerBookingsState: StateFlow<UiState<List<ServiceBooking>>> = _customerBookingsState.asStateFlow()
+
+    private val _providerBookingsState = MutableStateFlow<UiState<List<ServiceBooking>>>(UiState.Loading)
+    val providerBookingsState: StateFlow<UiState<List<ServiceBooking>>> = _providerBookingsState.asStateFlow()
+
+    private val _providerApproved = MutableStateFlow(false)
+    val providerApproved: StateFlow<Boolean> = _providerApproved.asStateFlow()
+
+    private val _providerProfile = MutableStateFlow<ProviderProfile?>(null)
+    val providerProfile: StateFlow<ProviderProfile?> = _providerProfile.asStateFlow()
+
+    private val _notificationsState = MutableStateFlow<UiState<List<UserNotification>>>(UiState.Loading)
+    val notificationsState: StateFlow<UiState<List<UserNotification>>> = _notificationsState.asStateFlow()
+
+    private val _isAdmin = MutableStateFlow(initialUser.accountRole == "admin")
     val isAdmin: StateFlow<Boolean> = _isAdmin.asStateFlow()
+
+    private val _adminStats = MutableStateFlow(AdminStats())
+    val adminStats: StateFlow<AdminStats> = _adminStats.asStateFlow()
+
+    private val _adminProviders = MutableStateFlow<List<ProviderProfile>>(emptyList())
+    val adminProviders: StateFlow<List<ProviderProfile>> = _adminProviders.asStateFlow()
+
+    private val _adminServicesState = MutableStateFlow<List<ServiceOffering>>(emptyList())
+    val adminServicesState: StateFlow<List<ServiceOffering>> = _adminServicesState.asStateFlow()
+
+    private val _adminBookingsState = MutableStateFlow<List<ServiceBooking>>(emptyList())
+    val adminBookingsState: StateFlow<List<ServiceBooking>> = _adminBookingsState.asStateFlow()
+
+    private val _adminUsersState = MutableStateFlow<List<UserProfile>>(emptyList())
+    val adminUsersState: StateFlow<List<UserProfile>> = _adminUsersState.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -63,144 +82,86 @@ class KajerManushViewModel(
     val isMutating: StateFlow<Boolean> = _isMutating.asStateFlow()
 
     init {
+        refreshAll()
+    }
+
+    fun refreshAll() {
         viewModelScope.launch {
-            _isAdmin.value = repository.checkIsAdmin(currentUserId)
-            repository.ensureUserProfile(
-                uid = currentUserId,
-                displayName = initialDisplayName,
-                email = initialEmail,
-                preferredLanguage = initialLanguage,
-                bengaliNumerals = initialBengaliNumerals,
-                signUpDraft = pendingSignUpDraft
-            )
-            if (pendingSignUpDraft != null) {
-                onSignUpDraftConsumed()
+            repository.fetchMe().onSuccess { fresh ->
+                _userProfileState.value = UiState.Success(fresh)
+                _isAdmin.value = fresh.accountRole == "admin"
+                prefsStore.saveLanguage(AppLanguage.fromCode(fresh.languagePreference))
+                prefsStore.saveBengaliNumerals(fresh.bengaliNumerals)
+            }
+            loadServices()
+            loadBookings()
+            loadNotifications()
+            if (_isAdmin.value) {
+                loadAdminData()
             }
         }
     }
 
-    val userProfileState: StateFlow<UiState<UserProfile?>> = repository.observeUserProfile(currentUserId)
-        .onEach { profile ->
-            if (profile != null && !hasSyncedInitialServerLanguage) {
-                hasSyncedInitialServerLanguage = true
-                val serverLang = AppLanguage.fromCode(profile.languagePreference)
-                prefsStore.saveLanguage(serverLang)
-                prefsStore.saveBengaliNumerals(profile.bengaliNumerals)
+    fun loadServices() {
+        viewModelScope.launch {
+            repository.fetchActiveServices()
+                .onSuccess { list ->
+                    _servicesState.value = UiState.Success(list)
+                    if (_isAdmin.value) {
+                        _adminServicesState.value = list
+                    }
+                }
+                .onFailure { err ->
+                    _servicesState.value = UiState.Error(err.localizedMessage ?: "Failed to load services")
+                }
+        }
+    }
+
+    fun loadBookings() {
+        viewModelScope.launch {
+            repository.fetchMyBookings()
+                .onSuccess { list -> _customerBookingsState.value = UiState.Success(list) }
+                .onFailure { err ->
+                    _customerBookingsState.value = UiState.Error(err.localizedMessage ?: "Failed to load bookings")
+                }
+
+            val role = (_userProfileState.value as? UiState.Success)?.data?.accountRole
+            if (role == "provider" || role == "admin") {
+                repository.fetchMyProviderProfile().onSuccess { _providerProfile.value = it }
+                repository.fetchProviderBookings()
+                    .onSuccess { (list, approved) ->
+                        _providerApproved.value = approved
+                        _providerBookingsState.value = UiState.Success(list)
+                    }
+                    .onFailure { err ->
+                        _providerBookingsState.value = UiState.Error(err.localizedMessage ?: "Failed to load provider jobs")
+                    }
+            } else {
+                _providerBookingsState.value = UiState.Success(emptyList())
             }
         }
-        .map<UserProfile?, UiState<UserProfile?>> { UiState.Success(it) }
-        .catch { error ->
-            val fsErr = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (fsErr == null && error is CancellationException) throw error
-            val root = fsErr ?: error
-            Log.w(TAG, "Error observing profile", root)
-            emit(UiState.Error(root.message ?: "Failed to load profile"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    }
 
-    val servicesState: StateFlow<UiState<List<ServiceOffering>>> = repository.observeActiveServices()
-        .map<List<ServiceOffering>, UiState<List<ServiceOffering>>> { UiState.Success(it) }
-        .catch { error ->
-            val fsErr = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (fsErr == null && error is CancellationException) throw error
-            val root = fsErr ?: error
-            Log.w(TAG, "Error observing services", root)
-            emit(UiState.Error(root.message ?: "Failed to load services"))
+    fun loadNotifications() {
+        viewModelScope.launch {
+            repository.fetchNotifications()
+                .onSuccess { list -> _notificationsState.value = UiState.Success(list) }
+                .onFailure { err ->
+                    _notificationsState.value = UiState.Error(err.localizedMessage ?: "Failed to load notifications")
+                }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
+    }
 
-    val customerBookingsState: StateFlow<UiState<List<ServiceBooking>>> = repository.observeCustomerBookings(currentUserId)
-        .map<List<ServiceBooking>, UiState<List<ServiceBooking>>> { UiState.Success(it) }
-        .catch { error ->
-            val fsErr = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (fsErr == null && error is CancellationException) throw error
-            val root = fsErr ?: error
-            Log.w(TAG, "Error observing customer bookings", root)
-            emit(UiState.Error(root.message ?: "Failed to load bookings"))
+    fun loadAdminData() {
+        if (!_isAdmin.value) return
+        viewModelScope.launch {
+            repository.fetchAdminStats().onSuccess { _adminStats.value = it }
+            repository.fetchAdminProviders().onSuccess { _adminProviders.value = it }
+            repository.fetchAdminBookings().onSuccess { _adminBookingsState.value = it }
+            repository.fetchAdminUsers().onSuccess { _adminUsersState.value = it }
+            repository.fetchActiveServices().onSuccess { _adminServicesState.value = it }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
-
-    val providerBookingsState: StateFlow<UiState<List<ServiceBooking>>> = repository.observeProviderBookings(currentUserId)
-        .map<List<ServiceBooking>, UiState<List<ServiceBooking>>> { UiState.Success(it) }
-        .catch { error ->
-            val fsErr = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (fsErr == null && error is CancellationException) throw error
-            val root = fsErr ?: error
-            Log.w(TAG, "Error observing provider bookings", root)
-            emit(UiState.Error(root.message ?: "Failed to load provider bookings"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
-
-    val notificationsState: StateFlow<UiState<List<UserNotification>>> = repository.observeNotifications(currentUserId)
-        .map<List<UserNotification>, UiState<List<UserNotification>>> { UiState.Success(it) }
-        .catch { error ->
-            val fsErr = generateSequence(error) { it.cause }
-                .filterIsInstance<FirebaseFirestoreException>()
-                .firstOrNull()
-            if (fsErr == null && error is CancellationException) throw error
-            val root = fsErr ?: error
-            Log.w(TAG, "Error observing notifications", root)
-            emit(UiState.Error(root.message ?: "Failed to load notifications"))
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = UiState.Loading
-        )
-
-    val adminServicesState: StateFlow<List<ServiceOffering>> = _isAdmin
-        .flatMapLatest { admin ->
-            if (admin) repository.observeAllServicesAdmin() else flowOf(emptyList())
-        }
-        .catch { error ->
-            if (error is CancellationException) throw error
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
-
-    val adminBookingsState: StateFlow<List<ServiceBooking>> = _isAdmin
-        .flatMapLatest { admin ->
-            if (admin) repository.observeAllBookingsAdmin() else flowOf(emptyList())
-        }
-        .catch { error ->
-            if (error is CancellationException) throw error
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
-
-    val adminUsersState: StateFlow<List<UserProfile>> = _isAdmin
-        .flatMapLatest { admin ->
-            if (admin) repository.observeAllUsersAdmin() else flowOf(emptyList())
-        }
-        .catch { error ->
-            if (error is CancellationException) throw error
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), emptyList())
+    }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -215,40 +176,98 @@ class KajerManushViewModel(
     }
 
     fun switchLanguage(language: AppLanguage, currentBengaliNumerals: Boolean) {
-        hasSyncedInitialServerLanguage = true
         viewModelScope.launch {
             prefsStore.saveLanguage(language)
-            repository.syncLanguagePreference(currentUserId, language, currentBengaliNumerals)
+            repository.syncLanguagePreference(language, currentBengaliNumerals).onSuccess { updated ->
+                _userProfileState.value = UiState.Success(updated)
+            }
         }
     }
 
     fun toggleBengaliNumerals(enabled: Boolean, currentLanguage: AppLanguage) {
-        hasSyncedInitialServerLanguage = true
         viewModelScope.launch {
             prefsStore.saveBengaliNumerals(enabled)
-            repository.syncLanguagePreference(currentUserId, currentLanguage, enabled)
+            repository.syncLanguagePreference(currentLanguage, enabled).onSuccess { updated ->
+                _userProfileState.value = UiState.Success(updated)
+            }
         }
     }
 
     fun updateNotificationPrefs(pushEnabled: Boolean, emailEnabled: Boolean) {
+        val current = (_userProfileState.value as? UiState.Success)?.data ?: return
         viewModelScope.launch {
-            repository.updateNotificationPreferences(currentUserId, pushEnabled, emailEnabled)
+            repository.saveProfileDetails(
+                fullName = current.fullName,
+                mobileNumber = current.mobileNumber,
+                fullAddress = current.fullAddress,
+                pushEnabled = pushEnabled,
+                emailEnabled = emailEnabled
+            ).onSuccess { updated ->
+                _userProfileState.value = UiState.Success(updated)
+            }
         }
     }
 
-    fun completeRegistration(
+    fun updateProfile(
         fullName: String,
         mobile: String,
         address: String,
-        accountRole: String,
         successMsg: String,
         errorMsg: String
     ) {
         viewModelScope.launch {
             _isMutating.value = true
-            val result = repository.saveProfileDetails(currentUserId, fullName, mobile, address, accountRole)
+            val result = repository.saveProfileDetails(fullName, mobile, address)
             _isMutating.value = false
-            _actionMessage.value = if (result.isSuccess) successMsg else (result.exceptionOrNull()?.localizedMessage ?: errorMsg)
+            result.onSuccess { updated ->
+                _userProfileState.value = UiState.Success(updated)
+                _actionMessage.value = successMsg
+            }.onFailure { err ->
+                _actionMessage.value = err.localizedMessage ?: errorMsg
+            }
+        }
+    }
+
+    fun applyProviderProfile(
+        bioBn: String,
+        bioEn: String,
+        categories: List<String>,
+        locationBn: String,
+        locationEn: String,
+        experienceYears: Int,
+        successMsg: String,
+        errorMsg: String,
+        onSaved: () -> Unit
+    ) {
+        viewModelScope.launch {
+            _isMutating.value = true
+            val result = repository.applyProviderProfile(
+                bioBn = bioBn,
+                bioEn = bioEn,
+                serviceCategories = categories,
+                serviceLocationBn = locationBn,
+                serviceLocationEn = locationEn,
+                experienceYears = experienceYears,
+                isAvailable = true
+            )
+            _isMutating.value = false
+            result.onSuccess { prof ->
+                _providerProfile.value = prof
+                _providerApproved.value = prof.isApproved
+                _actionMessage.value = successMsg
+                loadBookings()
+                onSaved()
+            }.onFailure { err ->
+                _actionMessage.value = err.localizedMessage ?: errorMsg
+            }
+        }
+    }
+
+    fun toggleProviderAvailability(available: Boolean) {
+        viewModelScope.launch {
+            repository.toggleProviderAvailability(available).onSuccess { prof ->
+                _providerProfile.value = prof
+            }
         }
     }
 
@@ -261,7 +280,6 @@ class KajerManushViewModel(
         scheduledSlot: String,
         notes: String,
         language: AppLanguage,
-        assignSelfAsDemoProvider: Boolean,
         successMsg: String,
         errorMsg: String,
         onBooked: () -> Unit
@@ -269,19 +287,20 @@ class KajerManushViewModel(
         viewModelScope.launch {
             _isMutating.value = true
             val result = repository.createBooking(
-                service = service,
+                serviceId = service.id,
                 customerName = customerName,
                 customerPhone = customerPhone,
                 serviceAddress = serviceAddress,
                 scheduledDate = scheduledDate,
                 scheduledSlot = scheduledSlot,
                 notes = notes,
-                language = language,
-                assignSelfAsDemoProvider = assignSelfAsDemoProvider
+                language = language
             )
             _isMutating.value = false
             if (result.isSuccess) {
                 _actionMessage.value = successMsg
+                loadBookings()
+                loadNotifications()
                 onBooked()
             } else {
                 _actionMessage.value = result.exceptionOrNull()?.localizedMessage ?: errorMsg
@@ -292,21 +311,71 @@ class KajerManushViewModel(
     fun updateBookingStatus(
         booking: ServiceBooking,
         newStatus: BookingStatus,
-        notifyLanguage: AppLanguage,
         successMsg: String,
         errorMsg: String
     ) {
         viewModelScope.launch {
             _isMutating.value = true
-            val result = repository.updateBookingStatus(booking, newStatus, notifyLanguage)
+            val result = repository.updateBookingStatus(booking.id, newStatus)
             _isMutating.value = false
-            _actionMessage.value = if (result.isSuccess) successMsg else (result.exceptionOrNull()?.localizedMessage ?: errorMsg)
+            if (result.isSuccess) {
+                _actionMessage.value = successMsg
+                loadBookings()
+                loadNotifications()
+                if (_isAdmin.value) loadAdminData()
+            } else {
+                _actionMessage.value = result.exceptionOrNull()?.localizedMessage ?: errorMsg
+            }
+        }
+    }
+
+    fun submitReview(
+        bookingId: String,
+        rating: Int,
+        comment: String,
+        successMsg: String,
+        errorMsg: String,
+        onDone: () -> Unit
+    ) {
+        viewModelScope.launch {
+            _isMutating.value = true
+            val result = repository.submitReview(bookingId, rating, comment)
+            _isMutating.value = false
+            if (result.isSuccess) {
+                _actionMessage.value = successMsg
+                loadBookings()
+                loadServices()
+                onDone()
+            } else {
+                _actionMessage.value = result.exceptionOrNull()?.localizedMessage ?: errorMsg
+            }
         }
     }
 
     fun markNotificationRead(notificationId: String) {
         viewModelScope.launch {
-            repository.markNotificationRead(currentUserId, notificationId)
+            repository.markNotificationRead(notificationId).onSuccess {
+                loadNotifications()
+            }
+        }
+    }
+
+    fun approveProviderAdmin(
+        providerProfileId: String,
+        decision: String,
+        successMsg: String,
+        errorMsg: String
+    ) {
+        viewModelScope.launch {
+            _isMutating.value = true
+            val result = repository.approveProviderAdmin(providerProfileId, decision)
+            _isMutating.value = false
+            if (result.isSuccess) {
+                _actionMessage.value = successMsg
+                loadAdminData()
+            } else {
+                _actionMessage.value = result.exceptionOrNull()?.localizedMessage ?: errorMsg
+            }
         }
     }
 
@@ -323,19 +392,12 @@ class KajerManushViewModel(
             _isMutating.value = false
             if (result.isSuccess) {
                 _actionMessage.value = successMsg
+                loadServices()
+                loadAdminData()
                 onSaved()
             } else {
                 _actionMessage.value = result.exceptionOrNull()?.localizedMessage ?: errorMsg
             }
-        }
-    }
-
-    fun seedDefaultServicesAdmin(successMsg: String, errorMsg: String) {
-        viewModelScope.launch {
-            _isMutating.value = true
-            val result = repository.seedDefaultServicesAdmin()
-            _isMutating.value = false
-            _actionMessage.value = if (result.isSuccess) successMsg else (result.exceptionOrNull()?.localizedMessage ?: errorMsg)
         }
     }
 
@@ -347,9 +409,16 @@ class KajerManushViewModel(
         errorMsg: String,
         onSubmitted: () -> Unit
     ) {
+        val current = (_userProfileState.value as? UiState.Success)?.data
         viewModelScope.launch {
             _isMutating.value = true
-            val result = repository.submitSupportTicket(currentUserId, subject, message, language)
+            val result = repository.submitSupportTicket(
+                name = current?.fullName.orEmpty(),
+                email = current?.email.orEmpty(),
+                subject = subject,
+                message = message,
+                language = language
+            )
             _isMutating.value = false
             if (result.isSuccess) {
                 _actionMessage.value = successMsg
@@ -360,8 +429,9 @@ class KajerManushViewModel(
         }
     }
 
-    private companion object {
-        const val TAG = "KajerManushVM"
-        const val STOP_TIMEOUT_MILLIS = 5000L
+    fun signOut() {
+        viewModelScope.launch {
+            repository.logout()
+        }
     }
 }
