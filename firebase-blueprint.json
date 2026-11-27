@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Kajer Manush user account profile and synchronized bilingual preference.",
+      "description": "Kajer Manus user account profile and synchronized bilingual preference.",
       "type": "object",
       "properties": {
         "userId": { "type": "string", "description": "Firebase Auth UID of the user." },

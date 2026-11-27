@@ -125,7 +125,7 @@ class KajerManushRepository(
                 }
             } else {
                 val safeName = (signUpDraft?.fullName?.trim()?.takeIf { it.isNotBlank() } ?: displayName.trim())
-                    .ifBlank { "Kajer Manush User" }.take(80)
+                    .ifBlank { "Kajer Manus User" }.take(80)
                 val safeEmail = email.trim()
                     .ifBlank { signUpDraft?.email?.trim().orEmpty() }
                     .ifBlank { "user@kajermanus.in" }.take(120)
@@ -322,7 +322,7 @@ class KajerManushRepository(
                     "descriptionBn" to service.descriptionBn.trim().take(500),
                     "descriptionEn" to service.descriptionEn.trim().take(500),
                     "providerNameBn" to service.providerNameBn.trim().ifBlank { "কাজের মানুষ কর্মী" }.take(80),
-                    "providerNameEn" to service.providerNameEn.trim().ifBlank { "Kajer Manush Pro" }.take(80),
+                    "providerNameEn" to service.providerNameEn.trim().ifBlank { "Kajer Manus Pro" }.take(80),
                     "providerAreaBn" to service.providerAreaBn.trim().ifBlank { "কলকাতা" }.take(80),
                     "providerAreaEn" to service.providerAreaEn.trim().ifBlank { "Kolkata" }.take(80),
                     "providerId" to service.providerId.ifBlank { "demo_provider" }.take(128),

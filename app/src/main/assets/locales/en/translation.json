@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "Kajer Manush",
+    "name": "Kajer Manus",
     "tagline": "Your Trusted Home Companion",
     "subtitle": "Book verified skilled professionals in minutes"
   },
@@ -28,7 +28,7 @@
     "terms": "Terms & Conditions"
   },
   "auth": {
-    "welcome_title": "Welcome to Kajer Manush",
+    "welcome_title": "Welcome to Kajer Manus",
     "welcome_desc": "From electricians, plumbers, and AC technicians to deep home cleaning — trusted professionals across West Bengal at your doorstep.",
     "sign_in_google": "Sign in with Google",
     "signing_in": "Signing in...",
@@ -55,10 +55,10 @@
     "sign_in_tab": "Sign In",
     "create_account_cta": "Create New Account (Sign Up)",
     "sign_up_title": "Create Your Account",
-    "sign_up_subtitle": "Enter your details to register on Kajer Manush",
+    "sign_up_subtitle": "Enter your details to register on Kajer Manus",
     "sign_up_google": "Complete Sign Up with Google",
     "already_have_account": "Already have an account? Sign In",
-    "no_account_prompt": "New to Kajer Manush?",
+    "no_account_prompt": "New to Kajer Manus?",
     "agree_terms_prefix": "I agree to the Terms & Conditions and Privacy Policy.",
     "err_email_invalid": "Please enter a valid email address.",
     "err_terms_required": "Please accept the Terms & Conditions and Privacy Policy.",
@@ -171,7 +171,7 @@
     "independent_note": "Bengali and English content are stored independently — editing one never overwrites the other.",
     "template_preview_title": "Bilingual Push & Email Templates",
     "otp_sample_title": "Registration OTP Email",
-    "otp_sample_body": "Your Kajer Manush verification code is: 482910. Valid for 10 minutes.",
+    "otp_sample_body": "Your Kajer Manus verification code is: 482910. Valid for 10 minutes.",
     "reset_sample_title": "Password Reset OTP",
     "reset_sample_body": "Your password reset OTP is: 739204. Never share this code with anyone.",
     "booking_push_sample": "Your booking has been accepted.",
@@ -191,9 +191,9 @@
     "contact_send": "Send Message",
     "contact_sent": "Your support message has been sent.",
     "privacy_title": "Privacy Policy",
-    "privacy_body": "Kajer Manush securely stores your name, email address, mobile number, and service address solely to coordinate home service bookings and account notifications. We never sell or share your personal information with unauthorized third parties.",
+    "privacy_body": "Kajer Manus securely stores your name, email address, mobile number, and service address solely to coordinate home service bookings and account notifications. We never sell or share your personal information with unauthorized third parties.",
     "terms_title": "Terms & Conditions",
-    "terms_body": "Please provide accurate contact details and service addresses when booking on Kajer Manush. Pending bookings may be cancelled before acceptance. We strive to ensure punctual, verified professionals for every appointment."
+    "terms_body": "Please provide accurate contact details and service addresses when booking on Kajer Manus. Pending bookings may be cancelled before acceptance. We strive to ensure punctual, verified professionals for every appointment."
   },
   "common": {
     "loading": "Loading...",
