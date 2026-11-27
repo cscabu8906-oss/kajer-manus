@@ -1,0 +1,318 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email_verified == true &&
+         request.auth.token.email == 'cscabu8906@gmail.com')
+      );
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 80 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+             data.mobileNumber is string && data.mobileNumber.size() <= 20 &&
+             data.fullAddress is string && data.fullAddress.size() <= 250 &&
+             data.accountRole in ['customer', 'provider'] &&
+             data.languagePreference in ['bn', 'en'] &&
+             data.bengaliNumerals is bool &&
+             data.pushNotificationsEnabled is bool &&
+             data.emailNotificationsEnabled is bool &&
+             data.profileCompleted is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidService(data) {
+      return data.categoryKey in [
+               'electrician', 'plumber', 'ac_repair', 'home_cleaning',
+               'carpenter', 'painter', 'appliance_repair', 'gardening'
+             ] &&
+             data.titleBn is string && data.titleBn.size() >= 1 && data.titleBn.size() <= 100 &&
+             data.titleEn is string && data.titleEn.size() >= 1 && data.titleEn.size() <= 100 &&
+             data.descriptionBn is string && data.descriptionBn.size() >= 1 && data.descriptionBn.size() <= 500 &&
+             data.descriptionEn is string && data.descriptionEn.size() >= 1 && data.descriptionEn.size() <= 500 &&
+             data.providerNameBn is string && data.providerNameBn.size() >= 1 && data.providerNameBn.size() <= 80 &&
+             data.providerNameEn is string && data.providerNameEn.size() >= 1 && data.providerNameEn.size() <= 80 &&
+             data.providerAreaBn is string && data.providerAreaBn.size() >= 1 && data.providerAreaBn.size() <= 80 &&
+             data.providerAreaEn is string && data.providerAreaEn.size() >= 1 && data.providerAreaEn.size() <= 80 &&
+             data.providerId is string && data.providerId.size() >= 1 && data.providerId.size() <= 128 &&
+             data.basePriceInr is int && data.basePriceInr >= 0 && data.basePriceInr <= 100000 &&
+             data.durationMinutes is int && data.durationMinutes >= 15 && data.durationMinutes <= 720 &&
+             (data.rating is float || data.rating is int) && data.rating >= 0 && data.rating <= 5 &&
+             data.active is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidBooking(data) {
+      return data.customerId is string && data.customerId.size() >= 1 && data.customerId.size() <= 128 &&
+             data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 80 &&
+             data.customerPhone is string && data.customerPhone.size() >= 5 && data.customerPhone.size() <= 20 &&
+             data.serviceAddress is string && data.serviceAddress.size() >= 3 && data.serviceAddress.size() <= 250 &&
+             data.serviceId is string && data.serviceId.size() >= 1 && data.serviceId.size() <= 128 &&
+             data.serviceTitleBn is string && data.serviceTitleBn.size() >= 1 && data.serviceTitleBn.size() <= 120 &&
+             data.serviceTitleEn is string && data.serviceTitleEn.size() >= 1 && data.serviceTitleEn.size() <= 120 &&
+             data.categoryKey is string && data.categoryKey.size() >= 1 && data.categoryKey.size() <= 40 &&
+             data.providerId is string && data.providerId.size() >= 1 && data.providerId.size() <= 128 &&
+             data.providerNameBn is string && data.providerNameBn.size() >= 1 && data.providerNameBn.size() <= 80 &&
+             data.providerNameEn is string && data.providerNameEn.size() >= 1 && data.providerNameEn.size() <= 80 &&
+             data.scheduledDate is string && data.scheduledDate.size() >= 4 && data.scheduledDate.size() <= 40 &&
+             data.scheduledSlot is string && data.scheduledSlot.size() >= 2 && data.scheduledSlot.size() <= 60 &&
+             data.amountInr is int && data.amountInr >= 0 && data.amountInr <= 100000 &&
+             data.notes is string && data.notes.size() <= 400 &&
+             data.status in ['pending', 'accepted', 'rejected', 'in_progress', 'completed', 'cancelled'] &&
+             data.languageAtBooking in ['bn', 'en'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidNotification(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.titleBn is string && data.titleBn.size() >= 1 && data.titleBn.size() <= 140 &&
+             data.titleEn is string && data.titleEn.size() >= 1 && data.titleEn.size() <= 140 &&
+             data.bodyBn is string && data.bodyBn.size() >= 1 && data.bodyBn.size() <= 400 &&
+             data.bodyEn is string && data.bodyEn.size() >= 1 && data.bodyEn.size() <= 400 &&
+             data.bookingId is string && data.bookingId.size() <= 128 &&
+             data.type in ['booking_created', 'booking_status', 'security', 'system'] &&
+             data.readFlag is bool &&
+             data.languageCode in ['bn', 'en'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidSupportTicket(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.subject is string && data.subject.size() >= 2 && data.subject.size() <= 120 &&
+             data.message is string && data.message.size() >= 5 && data.message.size() <= 1000 &&
+             data.languageCode in ['bn', 'en'] &&
+             data.status in ['open', 'resolved'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    // Trusted Admin Registry
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && request.auth.uid == adminId;
+      allow list, create, update, delete: if false;
+    }
+
+    // Users & PII-isolated user preferences
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'fullName', 'email', 'mobileNumber', 'fullAddress',
+                         'accountRole', 'languagePreference', 'bengaliNumerals',
+                         'pushNotificationsEnabled', 'emailNotificationsEnabled',
+                         'profileCompleted', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'fullName', 'email', 'mobileNumber', 'fullAddress',
+                         'accountRole', 'languagePreference', 'bengaliNumerals',
+                         'pushNotificationsEnabled', 'emailNotificationsEnabled',
+                         'profileCompleted', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) && (
+                         isAdmin() ||
+                         (
+                           request.auth.uid == userId &&
+                           incoming().userId == existing().userId &&
+                           incoming().email == existing().email &&
+                           incoming().createdAt == existing().createdAt &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'fullName', 'mobileNumber', 'fullAddress', 'accountRole',
+                             'languagePreference', 'bengaliNumerals',
+                             'pushNotificationsEnabled', 'emailNotificationsEnabled',
+                             'profileCompleted', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isAdmin() && isValidId(userId);
+
+      // User Notifications Subcollection
+      match /notifications/{notificationId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(notificationId) && (request.auth.uid == userId || isAdmin());
+        allow list: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(notificationId) &&
+                         (request.auth.uid == userId || isAdmin()) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll([
+                           'userId', 'titleBn', 'titleEn', 'bodyBn', 'bodyEn',
+                           'bookingId', 'type', 'readFlag', 'languageCode', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'titleBn', 'titleEn', 'bodyBn', 'bodyEn',
+                           'bookingId', 'type', 'readFlag', 'languageCode', 'createdAt'
+                         ]) &&
+                         isValidNotification(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(notificationId) &&
+                         isValidNotification(incoming()) && (
+                           isAdmin() ||
+                           (
+                             request.auth.uid == userId &&
+                             incoming().userId == existing().userId &&
+                             incoming().createdAt == existing().createdAt &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['readFlag'])
+                           )
+                         );
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(notificationId) && (request.auth.uid == userId || isAdmin());
+      }
+
+      // User Support Tickets Subcollection
+      match /support_tickets/{ticketId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(ticketId) && (request.auth.uid == userId || isAdmin());
+        allow list: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(ticketId) &&
+                         request.auth.uid == userId &&
+                         incoming().userId == userId &&
+                         incoming().status == 'open' &&
+                         incoming().keys().hasAll([
+                           'userId', 'subject', 'message', 'languageCode', 'status', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'subject', 'message', 'languageCode', 'status', 'createdAt'
+                         ]) &&
+                         isValidSupportTicket(incoming());
+
+        allow update: if isAdmin() && isValidId(userId) && isValidId(ticketId) && isValidSupportTicket(incoming());
+        allow delete: if isAdmin() && isValidId(userId) && isValidId(ticketId);
+      }
+    }
+
+    // Bilingual Services Marketplace Catalog
+    match /services/{serviceId} {
+      allow get: if isSignedIn() && isValidId(serviceId) && (existing().active == true || isAdmin());
+      allow list: if isSignedIn() && (resource.data.active == true || isAdmin());
+
+      allow create: if isAdmin() &&
+                       isValidId(serviceId) &&
+                       incoming().keys().hasAll([
+                         'categoryKey', 'titleBn', 'titleEn', 'descriptionBn', 'descriptionEn',
+                         'providerNameBn', 'providerNameEn', 'providerAreaBn', 'providerAreaEn',
+                         'providerId', 'basePriceInr', 'durationMinutes', 'rating', 'active',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'categoryKey', 'titleBn', 'titleEn', 'descriptionBn', 'descriptionEn',
+                         'providerNameBn', 'providerNameEn', 'providerAreaBn', 'providerAreaEn',
+                         'providerId', 'basePriceInr', 'durationMinutes', 'rating', 'active',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidService(incoming());
+
+      allow update: if isAdmin() &&
+                       isValidId(serviceId) &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidService(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'categoryKey', 'titleBn', 'titleEn', 'descriptionBn', 'descriptionEn',
+                         'providerNameBn', 'providerNameEn', 'providerAreaBn', 'providerAreaEn',
+                         'providerId', 'basePriceInr', 'durationMinutes', 'rating', 'active', 'updatedAt'
+                       ]);
+
+      allow delete: if isAdmin() && isValidId(serviceId);
+    }
+
+    // Bilingual Service Bookings
+    match /bookings/{bookingId} {
+      allow get: if isSignedIn() && isValidId(bookingId) && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       incoming().customerId == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       incoming().keys().hasAll([
+                         'customerId', 'customerName', 'customerPhone', 'serviceAddress',
+                         'serviceId', 'serviceTitleBn', 'serviceTitleEn', 'categoryKey',
+                         'providerId', 'providerNameBn', 'providerNameEn',
+                         'scheduledDate', 'scheduledSlot', 'amountInr', 'notes',
+                         'status', 'languageAtBooking', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'customerId', 'customerName', 'customerPhone', 'serviceAddress',
+                         'serviceId', 'serviceTitleBn', 'serviceTitleEn', 'categoryKey',
+                         'providerId', 'providerNameBn', 'providerNameEn',
+                         'scheduledDate', 'scheduledSlot', 'amountInr', 'notes',
+                         'status', 'languageAtBooking', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidBooking(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(bookingId) &&
+                       isValidBooking(incoming()) &&
+                       incoming().customerId == existing().customerId &&
+                       incoming().createdAt == existing().createdAt && (
+                         isAdmin() ||
+                         (
+                           existing().status in ['pending', 'accepted', 'in_progress'] && (
+                             (
+                               existing().customerId == request.auth.uid &&
+                               existing().status == 'pending' &&
+                               incoming().status == 'cancelled' &&
+                               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+                             ) ||
+                             (
+                               existing().providerId == request.auth.uid &&
+                               incoming().status in ['accepted', 'rejected', 'in_progress', 'completed'] &&
+                               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+                             )
+                           )
+                         )
+                       );
+
+      allow delete: if isAdmin() && isValidId(bookingId);
+    }
+  }
+}
