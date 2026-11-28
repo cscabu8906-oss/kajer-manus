@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MarkEmailRead
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsNone
+import androidx.compose.material.icons.rounded.Payment
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.data.BookingStatus
+import com.example.data.PaymentStatus
 import com.example.data.ProviderProfile
 import com.example.data.ServiceBooking
 import com.example.data.ServiceCategory
@@ -78,6 +80,7 @@ import com.example.i18n.LocalBilingualConfig
 import com.example.i18n.t
 import com.example.ui.UiState
 import com.example.ui.components.BilingualEmptyState
+import com.example.ui.components.BookingPaymentBadge
 import com.example.ui.components.BookingStatusBadge
 import com.example.ui.components.ReviewDialog
 
@@ -101,7 +104,8 @@ fun BookingsScreen(
         experienceYears: Int,
         onDone: () -> Unit
     ) -> Unit,
-    onToggleProviderAvailability: (Boolean) -> Unit
+    onToggleProviderAvailability: (Boolean) -> Unit,
+    onPayOnline: (ServiceBooking) -> Unit = {}
 ) {
     var providerMode by rememberSaveable(isProviderAccount) { mutableStateOf(isProviderAccount) }
     var selectedStatusKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -273,6 +277,7 @@ fun BookingsScreen(
                                     isMutating = isMutating,
                                     onRequestCancel = { cancelTarget = booking },
                                     onRequestReview = { reviewTarget = booking },
+                                    onPayOnline = { onPayOnline(booking) },
                                     onUpdateStatus = { status -> onUpdateBookingStatus(booking, status) }
                                 )
                             }
@@ -428,6 +433,7 @@ private fun BookingCard(
     isMutating: Boolean,
     onRequestCancel: () -> Unit,
     onRequestReview: () -> Unit,
+    onPayOnline: () -> Unit,
     onUpdateStatus: (BookingStatus) -> Unit
 ) {
     val config = LocalBilingualConfig.current
@@ -516,6 +522,43 @@ private fun BookingCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                BookingPaymentBadge(
+                    paymentMethod = booking.paymentMethod,
+                    paymentStatus = booking.paymentStatusEnum
+                )
+                if (booking.razorpayPaymentId.isNotBlank()) {
+                    Text(
+                        text = booking.razorpayPaymentId,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (!providerMode &&
+                booking.paymentStatusEnum != PaymentStatus.PAID &&
+                status != BookingStatus.CANCELLED &&
+                status != BookingStatus.REJECTED &&
+                booking.amountInr > 0
+            ) {
+                Button(
+                    onClick = onPayOnline,
+                    enabled = !isMutating,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("pay_booking_${booking.id}")
+                ) {
+                    Icon(Icons.Rounded.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(t("booking.pay_now_btn"))
+                }
             }
 
             if (!providerMode && (status == BookingStatus.PENDING || status == BookingStatus.ACCEPTED)) {

@@ -6,38 +6,55 @@ import {
   ArrowLeft,
   Bell,
   CalendarCheck,
+  Check,
+  Copy,
   FileText,
   FolderKanban,
+  KeyRound,
   LayoutDashboard,
   LogOut,
+  MapPin,
   MessageSquareWarning,
+  Pencil,
   RefreshCw,
   ScrollText,
   Search,
   ShieldAlert,
   ShieldCheck,
   Star,
+  Trash2,
   UserCheck,
   Users,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-react';
-import { apiRequest, formatInr, toLocaleDigits } from '../lib/api';
+import { adminLocationsApi, apiRequest, formatInr, resolveMediaUrl, toLocaleDigits } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { CATEGORY_SLUGS } from '../components/CategoryIcon';
-import type { ServiceItem, User, UserRole } from '../types';
+import type {
+  AdminLocationSummary,
+  BookingPaymentMethod,
+  BookingPaymentStatus,
+  DistrictBookingStat,
+  ServiceItem,
+  User,
+  UserRole
+} from '../types';
 
 type AdminTab =
   | 'stats'
   | 'providers'
   | 'users'
   | 'bookings'
+  | 'locations'
   | 'categories'
   | 'services'
   | 'reviews'
   | 'complaints'
   | 'cms'
   | 'broadcast'
-  | 'audit';
+  | 'audit'
+  | 'security';
 
 interface AdminServiceRow extends ServiceItem {
   is_active?: boolean;
@@ -50,6 +67,8 @@ export const AdminDashboardPage: React.FC = () => {
   // Separate Admin Login form state (zero hardcoded credentials)
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginTempToken, setLoginTempToken] = useState<string | null>(null);
+  const [login2faCode, setLogin2faCode] = useState('');
   const [loginSubmitting, setLoginSubmitting] = useState(false);
   const [loginError, setLoginError] = useState('');
 
@@ -99,7 +118,20 @@ export const AdminDashboardPage: React.FC = () => {
   const [catNameEn, setCatNameEn] = useState('');
   const [catDescBn, setCatDescBn] = useState('');
   const [catDescEn, setCatDescEn] = useState('');
+  const [catSubcategories, setCatSubcategories] = useState('');
   const [catActive, setCatActive] = useState(true);
+
+  // WB Location Master & Analytics state
+  const [locSummary, setLocSummary] = useState<AdminLocationSummary | null>(null);
+  const [districtStats, setDistrictStats] = useState<DistrictBookingStat[]>([]);
+  const [locTier, setLocTier] = useState<'districts' | 'subdivisions' | 'local_bodies' | 'gp_wards' | 'villages'>('districts');
+  const [locItems, setLocItems] = useState<Array<Record<string, unknown>>>([]);
+  const [locFilterDistrictId, setLocFilterDistrictId] = useState('');
+  const [locQuery, setLocQuery] = useState('');
+  const [locNewCode, setLocNewCode] = useState('');
+  const [locNewEn, setLocNewEn] = useState('');
+  const [locNewBn, setLocNewBn] = useState('');
+  const [locNewPin, setLocNewPin] = useState('');
 
   // Broadcast form
   const [bcastTitleBn, setBcastTitleBn] = useState('');
@@ -107,10 +139,40 @@ export const AdminDashboardPage: React.FC = () => {
   const [bcastBodyBn, setBcastBodyBn] = useState('');
   const [bcastBodyEn, setBcastBodyEn] = useState('');
 
+  // Admin 2FA state
+  const [twoFaStatus, setTwoFaStatus] = useState<{ enabled: boolean; backupCodesRemaining: number }>({
+    enabled: false,
+    backupCodesRemaining: 0
+  });
+  const [twoFaSetup, setTwoFaSetup] = useState<{
+    secretBase32: string;
+    otpauthUrl: string;
+    qrDataUrl: string;
+  } | null>(null);
+  const [twoFaConfirmCode, setTwoFaConfirmCode] = useState('');
+  const [twoFaBackupCodes, setTwoFaBackupCodes] = useState<string[] | null>(null);
+  const [twoFaDisablePassword, setTwoFaDisablePassword] = useState('');
+  const [twoFaDisableCode, setTwoFaDisableCode] = useState('');
+  const [copiedSecret, setCopiedSecret] = useState(false);
+
+  // User Edit / Delete modal state
+  const [editingUser, setEditingUser] = useState<{
+    id: string;
+    fullName: string;
+    email: string;
+    mobileNumber: string;
+    fullAddress: string;
+    role: UserRole;
+    isVerified: boolean;
+    newPassword: string;
+  } | null>(null);
+  const [deletingUser, setDeletingUser] = useState<{ id: string; fullName: string; email: string } | null>(null);
+  const [userActionBusy, setUserActionBusy] = useState(false);
+
   const loadAdminData = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [sRes, pRes, uRes, bRes, cRes, svcRes, rRes, compRes, cmsRes, notifRes, aRes, hRes] = await Promise.all([
+      const [sRes, pRes, uRes, bRes, cRes, svcRes, rRes, compRes, cmsRes, notifRes, aRes, hRes, tfaRes] = await Promise.all([
         apiRequest<{ stats: Record<string, number> }>('/admin/stats'),
         apiRequest<{ providers: Array<Record<string, unknown>> }>('/admin/providers'),
         apiRequest<{ users: Array<Record<string, unknown>> }>('/admin/users'),
@@ -126,7 +188,11 @@ export const AdminDashboardPage: React.FC = () => {
         apiRequest<{ logs: Array<Record<string, unknown>> }>('/admin/audit-logs'),
         apiRequest<Record<string, unknown>>('/admin/health').catch(() =>
           apiRequest<Record<string, unknown>>('/health')
-        )
+        ),
+        apiRequest<{ enabled: boolean; backupCodesRemaining: number }>('/admin/2fa/status').catch(() => ({
+          enabled: false,
+          backupCodesRemaining: 0
+        }))
       ]);
       setStats(sRes.stats);
       setProviders(pRes.providers);
@@ -148,12 +214,38 @@ export const AdminDashboardPage: React.FC = () => {
       setRecentNotifications(notifRes.notifications);
       setAuditLogs(aRes.logs);
       setHealth(hRes);
+      setTwoFaStatus(tfaRes);
+
+      const [locSumRes, locStatsRes] = await Promise.all([
+        adminLocationsApi.getSummary().catch(() => ({ summary: null })),
+        adminLocationsApi.getStats().catch(() => ({ byDistrict: [] }))
+      ]);
+      if (locSumRes.summary) setLocSummary(locSumRes.summary);
+      setDistrictStats(locStatsRes.byDistrict || []);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setRefreshing(false);
     }
   }, []);
+
+  const loadLocTierList = useCallback(async () => {
+    if (user?.role !== 'admin') return;
+    try {
+      const res = await adminLocationsApi.list({
+        tier: locTier,
+        districtId: locFilterDistrictId || undefined,
+        q: locQuery.trim() || undefined
+      });
+      setLocItems(res.items || []);
+    } catch {
+      setLocItems([]);
+    }
+  }, [user, locTier, locFilterDistrictId, locQuery]);
+
+  useEffect(() => {
+    if (tab === 'locations') loadLocTierList();
+  }, [tab, loadLocTierList]);
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -166,13 +258,37 @@ export const AdminDashboardPage: React.FC = () => {
     setLoginError('');
     setLoginSubmitting(true);
     try {
-      const res = await apiRequest<{ token: string; user: User }>('/auth/login', {
+      if (loginTempToken) {
+        const verified = await apiRequest<{ token: string; user: User }>('/auth/admin/2fa/verify-login', {
+          method: 'POST',
+          body: JSON.stringify({ tempToken: loginTempToken, code: login2faCode.trim() })
+        });
+        if (verified.user.role !== 'admin') {
+          setLoginError(t('admin.not_admin_error'));
+          return;
+        }
+        await loginWithToken(verified.token, verified.user);
+        setLoginTempToken(null);
+        setLogin2faCode('');
+        setLoginPassword('');
+        return;
+      }
+
+      const res = await apiRequest<{ requires2fa?: boolean; tempToken?: string; token?: string; user: User }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: loginIdentifier.trim(), password: loginPassword })
       });
       if (res.user.role !== 'admin') {
         setLoginError(t('admin.not_admin_error'));
         return;
+      }
+      if (res.requires2fa && res.tempToken) {
+        setLoginTempToken(res.tempToken);
+        setLogin2faCode('');
+        return;
+      }
+      if (!res.token) {
+        throw new Error('Authentication token missing');
       }
       await loginWithToken(res.token, res.user);
       setLoginPassword('');
@@ -224,36 +340,69 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
 
           <form onSubmit={handleAdminLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.email_or_mobile')}</label>
-              <input
-                type="text"
-                autoComplete="username"
-                value={loginIdentifier}
-                onChange={(e) => setLoginIdentifier(e.target.value)}
-                placeholder={t('auth.identifier_placeholder')}
-                required
-                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.password')}</label>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                required
-                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
-              />
-            </div>
+            {loginTempToken ? (
+              <div className="space-y-3">
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-brand-blue font-semibold">
+                  {t('auth.two_factor_subtitle')}
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1">{t('auth.two_factor_code_label')}</label>
+                  <input
+                    type="text"
+                    autoComplete="one-time-code"
+                    value={login2faCode}
+                    onChange={(e) => setLogin2faCode(e.target.value)}
+                    placeholder={t('auth.two_factor_code_placeholder')}
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-center font-bold tracking-widest"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginTempToken(null);
+                    setLogin2faCode('');
+                    setLoginError('');
+                  }}
+                  className="text-xs font-bold text-brand-blue hover:underline"
+                >
+                  {t('auth.two_factor_back')}
+                </button>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-semibold mb-1">{t('auth.email_or_mobile')}</label>
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    value={loginIdentifier}
+                    onChange={(e) => setLoginIdentifier(e.target.value)}
+                    placeholder={t('auth.identifier_placeholder')}
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1">{t('auth.password')}</label>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
+                  />
+                </div>
+              </>
+            )}
             {loginError && <div className="p-3 rounded-xl bg-red-50 text-red-700 text-sm">{loginError}</div>}
             <button
               type="submit"
               disabled={loginSubmitting}
               className="w-full py-3 rounded-xl bg-brand-blue hover:bg-blue-800 text-white font-bold transition"
             >
-              {loginSubmitting ? t('home.loading') : t('auth.submit_login')}
+              {loginSubmitting ? t('home.loading') : loginTempToken ? t('auth.two_factor_verify_btn') : t('auth.submit_login')}
             </button>
           </form>
         </div>
@@ -291,7 +440,7 @@ export const AdminDashboardPage: React.FC = () => {
     );
   }
 
-  const handleApproveProvider = async (id: string, decision: 'approved' | 'rejected') => {
+  const handleApproveProvider = async (id: string, decision: 'approved' | 'rejected' | 'suspended') => {
     setError('');
     setMsg('');
     try {
@@ -306,7 +455,33 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  const handleUpdateUser = async (id: string, payload: { role?: UserRole; isVerified?: boolean }) => {
+  const handleVerifyProviderDocs = async (id: string, status: 'verified' | 'rejected') => {
+    setError('');
+    setMsg('');
+    try {
+      await apiRequest(`/admin/providers/${id}/verify-docs`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status })
+      });
+      setMsg(t('admin.saved_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleUpdateUser = async (
+    id: string,
+    payload: {
+      fullName?: string;
+      email?: string;
+      mobileNumber?: string;
+      fullAddress?: string;
+      role?: UserRole;
+      isVerified?: boolean;
+      newPassword?: string;
+    }
+  ) => {
     setError('');
     setMsg('');
     try {
@@ -318,6 +493,55 @@ export const AdminDashboardPage: React.FC = () => {
       loadAdminData();
     } catch (err) {
       setError((err as Error).message);
+    }
+  };
+
+  const handleSaveEditedUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setError('');
+    setMsg('');
+    setUserActionBusy(true);
+    try {
+      const payload: Record<string, unknown> = {
+        fullName: editingUser.fullName.trim(),
+        email: editingUser.email.trim(),
+        mobileNumber: editingUser.mobileNumber.trim(),
+        fullAddress: editingUser.fullAddress.trim(),
+        role: editingUser.role,
+        isVerified: editingUser.isVerified
+      };
+      if (editingUser.newPassword.trim()) {
+        payload.newPassword = editingUser.newPassword;
+      }
+      await apiRequest(`/admin/users/${editingUser.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      setEditingUser(null);
+      setMsg(t('admin.user_updated_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUserActionBusy(false);
+    }
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deletingUser) return;
+    setError('');
+    setMsg('');
+    setUserActionBusy(true);
+    try {
+      await apiRequest(`/admin/users/${deletingUser.id}`, { method: 'DELETE' });
+      setDeletingUser(null);
+      setMsg(t('admin.user_deleted_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUserActionBusy(false);
     }
   };
 
@@ -336,10 +560,89 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  const handleUpdateBookingPayment = async (
+    id: string,
+    paymentStatus: BookingPaymentStatus,
+    paymentMethod?: BookingPaymentMethod
+  ) => {
+    setError('');
+    setMsg('');
+    try {
+      await apiRequest(`/admin/bookings/${id}/payment`, {
+        method: 'PATCH',
+        body: JSON.stringify({ paymentStatus, ...(paymentMethod ? { paymentMethod } : {}) })
+      });
+      setMsg(t('admin.saved_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleStart2faSetup = async () => {
+    setError('');
+    setMsg('');
+    setTwoFaBackupCodes(null);
+    try {
+      const res = await apiRequest<{ secretBase32: string; otpauthUrl: string; qrDataUrl: string }>('/admin/2fa/setup', {
+        method: 'POST'
+      });
+      setTwoFaSetup(res);
+      setTwoFaConfirmCode('');
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleConfirm2faSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMsg('');
+    try {
+      const res = await apiRequest<{ enabled: boolean; backupCodes: string[] }>('/admin/2fa/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ code: twoFaConfirmCode.trim() })
+      });
+      setTwoFaSetup(null);
+      setTwoFaConfirmCode('');
+      setTwoFaBackupCodes(res.backupCodes);
+      setMsg(t('admin.twofa_enabled_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleDisable2fa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMsg('');
+    try {
+      await apiRequest('/admin/2fa/disable', {
+        method: 'POST',
+        body: JSON.stringify({
+          password: twoFaDisablePassword,
+          code: twoFaDisableCode.trim()
+        })
+      });
+      setTwoFaDisablePassword('');
+      setTwoFaDisableCode('');
+      setTwoFaBackupCodes(null);
+      setMsg(t('admin.twofa_disabled_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setMsg('');
+    const subs = catSubcategories
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     try {
       await apiRequest('/admin/categories', {
         method: 'POST',
@@ -349,6 +652,7 @@ export const AdminDashboardPage: React.FC = () => {
           nameEn: catNameEn,
           descriptionBn: catDescBn,
           descriptionEn: catDescEn,
+          subcategories: subs,
           isActive: catActive
         })
       });
@@ -357,8 +661,44 @@ export const AdminDashboardPage: React.FC = () => {
       setCatNameEn('');
       setCatDescBn('');
       setCatDescEn('');
+      setCatSubcategories('');
       setCatActive(true);
       setMsg(t('admin.saved_msg'));
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleToggleLocationActive = async (id: string, currentActive: boolean) => {
+    setError('');
+    try {
+      await adminLocationsApi.update(locTier, id, { isActive: !currentActive });
+      loadLocTierList();
+      loadAdminData();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleAddLocationItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMsg('');
+    try {
+      await adminLocationsApi.upsert(locTier, {
+        code: locNewCode.trim(),
+        nameEn: locNewEn.trim(),
+        nameBn: locNewBn.trim(),
+        ...(locFilterDistrictId ? { districtId: locFilterDistrictId } : {}),
+        ...(locNewPin.trim() ? { pincode: locNewPin.trim() } : {})
+      });
+      setLocNewCode('');
+      setLocNewEn('');
+      setLocNewBn('');
+      setLocNewPin('');
+      setMsg(t('admin.saved_msg'));
+      loadLocTierList();
       loadAdminData();
     } catch (err) {
       setError((err as Error).message);
@@ -502,8 +842,9 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  const navItems: Array<{ key: AdminTab; icon: React.ReactNode }> = [
+  const navItems: Array<{ key: AdminTab; labelKey?: string; icon: React.ReactNode }> = [
     { key: 'stats', icon: <LayoutDashboard className="w-4 h-4" /> },
+    { key: 'locations', labelKey: 'extra.admin_tab_locations', icon: <MapPin className="w-4 h-4" /> },
     { key: 'providers', icon: <UserCheck className="w-4 h-4" /> },
     { key: 'users', icon: <Users className="w-4 h-4" /> },
     { key: 'bookings', icon: <CalendarCheck className="w-4 h-4" /> },
@@ -513,7 +854,8 @@ export const AdminDashboardPage: React.FC = () => {
     { key: 'complaints', icon: <MessageSquareWarning className="w-4 h-4" /> },
     { key: 'cms', icon: <FileText className="w-4 h-4" /> },
     { key: 'broadcast', icon: <Bell className="w-4 h-4" /> },
-    { key: 'audit', icon: <ScrollText className="w-4 h-4" /> }
+    { key: 'audit', icon: <ScrollText className="w-4 h-4" /> },
+    { key: 'security', icon: <KeyRound className="w-4 h-4" /> }
   ];
 
   const q = searchTerm.trim().toLowerCase();
@@ -549,7 +891,7 @@ export const AdminDashboardPage: React.FC = () => {
                 }`}
               >
                 {item.icon}
-                <span>{t(`admin.tabs.${item.key}`)}</span>
+                <span>{t(item.labelKey || `admin.tabs.${item.key}`)}</span>
               </button>
             ))}
           </nav>
@@ -632,11 +974,13 @@ export const AdminDashboardPage: React.FC = () => {
 
           {tab === 'stats' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {Object.entries(stats).map(([k, v]) => (
                   <div key={k} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                     <div className="text-xs text-slate-500 font-semibold">{t(`admin.stats.${k}`, k)}</div>
-                    <div className="text-3xl font-extrabold text-brand-blue mt-1">{toLocaleDigits(v, language)}</div>
+                    <div className="text-2xl sm:text-3xl font-extrabold text-brand-blue mt-1">
+                      {k === 'paidRevenueInr' ? formatInr(Number(v || 0), language) : toLocaleDigits(v, language)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -670,31 +1014,72 @@ export const AdminDashboardPage: React.FC = () => {
 
           {tab === 'providers' && (
             <div className="bg-white rounded-2xl border p-6 space-y-3">
-              {providers.filter((p) => matchesQuery(p.full_name, p.email, p.service_location_bn, p.service_location_en)).length === 0 ? (
+              {providers.filter((p) => matchesQuery(p.full_name, p.email, p.service_location_bn, p.service_location_en, p.pincode)).length === 0 ? (
                 <p className="text-sm text-slate-500">{t('home.empty_results')}</p>
               ) : (
                 providers
-                  .filter((p) => matchesQuery(p.full_name, p.email, p.service_location_bn, p.service_location_en))
-                  .map((p) => (
-                    <div key={String(p.id)} className="p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="font-bold">{String(p.full_name)} ({String(p.email)})</div>
-                        <div className="text-xs text-slate-500">
-                          {t('admin.status')}: <span className="font-semibold">{String(p.approval_status)}</span> •{' '}
-                          {toLocaleDigits(String(p.mobile_number || ''), language)} •{' '}
-                          {language === 'bn' ? String(p.service_location_bn || '') : String(p.service_location_en || '')}
+                  .filter((p) => matchesQuery(p.full_name, p.email, p.service_location_bn, p.service_location_en, p.pincode))
+                  .map((p) => {
+                    const docs = Array.isArray(p.id_doc_urls) ? (p.id_doc_urls as string[]) : [];
+                    const kycStatus = String(p.id_verification_status || 'pending');
+                    return (
+                      <div key={String(p.id)} className="p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-1.5">
+                          <div className="font-bold flex flex-wrap items-center gap-2">
+                            <span>{String(p.full_name)} ({String(p.email)})</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                kycStatus === 'verified'
+                                  ? 'bg-emerald-100 text-brand-green'
+                                  : kycStatus === 'rejected'
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              KYC: {kycStatus}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {t('admin.status')}: <span className="font-semibold">{String(p.approval_status)}</span> •{' '}
+                            {toLocaleDigits(String(p.mobile_number || ''), language)} •{' '}
+                            {language === 'bn' ? String(p.service_location_bn || '') : String(p.service_location_en || '')}
+                            {p.pincode ? ` (${String(p.pincode)})` : ''}
+                          </div>
+                          {Boolean(p.id_doc_type || p.id_doc_number_masked) && (
+                            <div className="text-xs text-slate-600">
+                              ID: {String(p.id_doc_type || '')} {String(p.id_doc_number_masked || '')}
+                            </div>
+                          )}
+                          {docs.length > 0 && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {docs.map((url, idx) => (
+                                <a key={`${url}-${idx}`} href={resolveMediaUrl(url)} target="_blank" rel="noreferrer">
+                                  <img src={resolveMediaUrl(url)} alt="KYC Doc" className="w-12 h-12 rounded-lg object-cover border border-slate-300" />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => handleApproveProvider(String(p.id), 'approved')} className="px-3 py-1.5 rounded-xl bg-brand-green text-white text-xs font-bold">
+                            {t('admin.approve')}
+                          </button>
+                          <button type="button" onClick={() => handleApproveProvider(String(p.id), 'suspended')} className="px-3 py-1.5 rounded-xl bg-amber-600 text-white text-xs font-bold">
+                            {t('extra.admin_suspend')}
+                          </button>
+                          <button type="button" onClick={() => handleApproveProvider(String(p.id), 'rejected')} className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold">
+                            {t('admin.reject')}
+                          </button>
+                          <button type="button" onClick={() => handleVerifyProviderDocs(String(p.id), 'verified')} className="px-3 py-1.5 rounded-xl border border-brand-blue text-brand-blue text-xs font-bold hover:bg-blue-50">
+                            {t('extra.admin_verify_kyc')}
+                          </button>
+                          <button type="button" onClick={() => handleVerifyProviderDocs(String(p.id), 'rejected')} className="px-3 py-1.5 rounded-xl border border-red-300 text-red-700 text-xs font-bold hover:bg-red-50">
+                            {t('extra.admin_reject_kyc')}
+                          </button>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button type="button" onClick={() => handleApproveProvider(String(p.id), 'approved')} className="px-3 py-1.5 rounded-xl bg-brand-green text-white text-xs font-bold">
-                          {t('admin.approve')}
-                        </button>
-                        <button type="button" onClick={() => handleApproveProvider(String(p.id), 'rejected')} className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold">
-                          {t('admin.reject')}
-                        </button>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
               )}
             </div>
           )}
@@ -707,10 +1092,18 @@ export const AdminDashboardPage: React.FC = () => {
                   const uid = String(u.id);
                   const isSelf = uid === user.id;
                   const verified = Boolean(u.is_verified);
+                  const has2fa = Boolean(u.two_factor_enabled);
                   return (
-                    <div key={uid} className="p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <div key={uid} className="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-sm">
                       <div>
-                        <div className="font-bold">{String(u.full_name)} — {String(u.email)}</div>
+                        <div className="font-bold flex flex-wrap items-center gap-2">
+                          <span>{String(u.full_name)} — {String(u.email)}</span>
+                          {has2fa && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-brand-green text-[10px] font-extrabold">
+                              2FA
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-slate-500">
                           {toLocaleDigits(String(u.mobile_number || ''), language)} • {String(u.full_address || '')}
                         </div>
@@ -734,6 +1127,40 @@ export const AdminDashboardPage: React.FC = () => {
                         >
                           {verified ? t('admin.verified') : t('admin.unverified')}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingUser({
+                              id: uid,
+                              fullName: String(u.full_name || ''),
+                              email: String(u.email || ''),
+                              mobileNumber: String(u.mobile_number || ''),
+                              fullAddress: String(u.full_address || ''),
+                              role: (String(u.role || 'customer') as UserRole),
+                              isVerified: verified,
+                              newPassword: ''
+                            })
+                          }
+                          className="px-3 py-1.5 rounded-xl border border-brand-blue text-brand-blue text-xs font-bold inline-flex items-center gap-1 hover:bg-blue-50"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>{t('admin.edit_btn')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSelf}
+                          onClick={() =>
+                            setDeletingUser({
+                              id: uid,
+                              fullName: String(u.full_name || ''),
+                              email: String(u.email || '')
+                            })
+                          }
+                          className="px-3 py-1.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-bold inline-flex items-center gap-1 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{t('admin.delete_btn')}</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -743,36 +1170,192 @@ export const AdminDashboardPage: React.FC = () => {
 
           {tab === 'bookings' && (
             <div className="bg-white rounded-2xl border p-6 space-y-3">
-              {bookings.filter((b) => matchesQuery(b.service_title_bn, b.service_title_en, b.customer_name, b.customer_phone, b.status)).length === 0 ? (
+              {bookings.filter((b) => matchesQuery(b.service_title_bn, b.service_title_en, b.customer_name, b.customer_phone, b.status, b.payment_status)).length === 0 ? (
                 <p className="text-sm text-slate-500">{t('home.empty_results')}</p>
               ) : (
                 bookings
-                  .filter((b) => matchesQuery(b.service_title_bn, b.service_title_en, b.customer_name, b.customer_phone, b.status))
-                  .map((b) => (
-                    <div key={String(b.id)} className="p-3 rounded-xl border text-sm flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="font-bold">
-                          {language === 'bn' ? String(b.service_title_bn) : String(b.service_title_en)} — {formatInr(Number(b.amount_inr || 0), language)}
+                  .filter((b) => matchesQuery(b.service_title_bn, b.service_title_en, b.customer_name, b.customer_phone, b.status, b.payment_status))
+                  .map((b) => {
+                    const pStatus = (String(b.payment_status || 'unpaid') as BookingPaymentStatus);
+                    const pMethod = (String(b.payment_method || 'cash') as BookingPaymentMethod);
+                    const pBadgeClass =
+                      pStatus === 'paid'
+                        ? 'bg-emerald-100 text-brand-green'
+                        : pStatus === 'pending'
+                          ? 'bg-amber-100 text-amber-800'
+                          : pStatus === 'failed'
+                            ? 'bg-red-100 text-red-700'
+                            : pStatus === 'refunded'
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-slate-100 text-slate-700';
+                    return (
+                      <div key={String(b.id)} className="p-3.5 rounded-xl border text-sm flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="font-bold flex flex-wrap items-center gap-2">
+                            <span>
+                              {language === 'bn' ? String(b.service_title_bn) : String(b.service_title_en)} — {formatInr(Number(b.amount_inr || 0), language)}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${pBadgeClass}`}>
+                              {t(`booking.payment_status_${pStatus}`)}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                              {pMethod === 'razorpay' ? t('booking.method_razorpay') : t('booking.method_cash')}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {String(b.customer_name)} ({toLocaleDigits(String(b.customer_phone || ''), language)}) • {toLocaleDigits(String(b.preferred_date || ''), language)}
+                            {b.razorpay_payment_id ? ` • ${String(b.razorpay_payment_id)}` : ''}
+                          </div>
                         </div>
-                        <div className="text-xs text-slate-500">
-                          {String(b.customer_name)} ({toLocaleDigits(String(b.customer_phone || ''), language)}) • {toLocaleDigits(String(b.preferred_date || ''), language)}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={pStatus}
+                            onChange={(e) => handleUpdateBookingPayment(String(b.id), e.target.value as BookingPaymentStatus)}
+                            aria-label={t('booking.payment_status_label')}
+                            className="border rounded-xl px-2.5 py-1.5 text-xs font-bold bg-white text-slate-800"
+                          >
+                            <option value="unpaid">{t('booking.payment_status_unpaid')}</option>
+                            <option value="pending">{t('booking.payment_status_pending')}</option>
+                            <option value="paid">{t('booking.payment_status_paid')}</option>
+                            <option value="failed">{t('booking.payment_status_failed')}</option>
+                            <option value="refunded">{t('booking.payment_status_refunded')}</option>
+                          </select>
+                          <select
+                            value={String(b.status)}
+                            onChange={(e) => handleUpdateBookingStatus(String(b.id), e.target.value)}
+                            className="border rounded-xl px-3 py-1.5 text-xs font-bold bg-blue-50 text-brand-blue"
+                          >
+                            <option value="pending" disabled>{t('booking.pending')}</option>
+                            <option value="accepted">{t('booking.accepted')}</option>
+                            <option value="in_progress">{t('booking.in_progress')}</option>
+                            <option value="completed">{t('booking.completed')}</option>
+                            <option value="rejected">{t('booking.rejected')}</option>
+                            <option value="cancelled">{t('booking.cancelled')}</option>
+                          </select>
                         </div>
                       </div>
-                      <select
-                        value={String(b.status)}
-                        onChange={(e) => handleUpdateBookingStatus(String(b.id), e.target.value)}
-                        className="border rounded-xl px-3 py-1.5 text-xs font-bold bg-blue-50 text-brand-blue"
-                      >
-                        <option value="pending" disabled>{t('booking.pending')}</option>
-                        <option value="accepted">{t('booking.accepted')}</option>
-                        <option value="in_progress">{t('booking.in_progress')}</option>
-                        <option value="completed">{t('booking.completed')}</option>
-                        <option value="rejected">{t('booking.rejected')}</option>
-                        <option value="cancelled">{t('booking.cancelled')}</option>
-                      </select>
-                    </div>
-                  ))
+                    );
+                  })
               )}
+            </div>
+          )}
+
+          {tab === 'locations' && (
+            <div className="space-y-6">
+              {locSummary && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                  {Object.entries(locSummary).map(([k, v]) => (
+                    <div key={k} className="bg-white rounded-2xl border border-slate-200 p-4">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase">{k}</div>
+                      <div className="text-xl font-extrabold text-brand-blue mt-1">{toLocaleDigits(v, language)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* District-Wise Booking & Provider Statistics */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+                <h2 className="text-lg font-extrabold text-slate-900">{t('extra.admin_location_stats_title')}</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b text-slate-500">
+                        <th className="py-2 pr-3">{t('locations.district')}</th>
+                        <th className="py-2 pr-3">Bookings</th>
+                        <th className="py-2 pr-3">Completed</th>
+                        <th className="py-2 pr-3">Providers</th>
+                        <th className="py-2 pr-3">Users</th>
+                        <th className="py-2">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {districtStats.map((ds) => (
+                        <tr key={ds.id} className="border-b border-slate-100">
+                          <td className="py-2 pr-3 font-bold text-slate-900">
+                            {language === 'bn' ? `${ds.name_bn} (${ds.name_en})` : ds.name_en}
+                          </td>
+                          <td className="py-2 pr-3">{toLocaleDigits(ds.total_bookings, language)}</td>
+                          <td className="py-2 pr-3 text-brand-green font-bold">{toLocaleDigits(ds.completed_bookings, language)}</td>
+                          <td className="py-2 pr-3">{toLocaleDigits(ds.active_providers, language)}</td>
+                          <td className="py-2 pr-3">{toLocaleDigits(ds.registered_users, language)}</td>
+                          <td className="py-2 font-bold">{formatInr(ds.revenue_inr, language)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Location Master Browser & Add/Toggle */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+                <h2 className="text-lg font-extrabold text-slate-900">{t('extra.admin_location_master_title')}</h2>
+                <div className="flex flex-wrap gap-2 items-center">
+                  {(['districts', 'subdivisions', 'local_bodies', 'gp_wards', 'villages'] as const).map((tier) => (
+                    <button
+                      key={tier}
+                      type="button"
+                      onClick={() => setLocTier(tier)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                        locTier === tier ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {tier}
+                    </button>
+                  ))}
+                  <select
+                    value={locFilterDistrictId}
+                    onChange={(e) => setLocFilterDistrictId(e.target.value)}
+                    className="border rounded-xl px-3 py-1.5 text-xs bg-white"
+                  >
+                    <option value="">{t('locations.select_district')}</option>
+                    {districtStats.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name_en}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={locQuery}
+                    onChange={(e) => setLocQuery(e.target.value)}
+                    placeholder={t('admin.search_placeholder')}
+                    className="border rounded-xl px-3 py-1.5 text-xs min-w-[180px]"
+                  />
+                </div>
+
+                {/* Quick Add / Upsert for current tier */}
+                <form onSubmit={handleAddLocationItem} className="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <input type="text" value={locNewCode} onChange={(e) => setLocNewCode(e.target.value)} placeholder="Code (unique)" required className="border bg-white rounded-xl px-2.5 py-1.5 text-xs" />
+                  <input type="text" value={locNewEn} onChange={(e) => setLocNewEn(e.target.value)} placeholder="Name (English)" required className="border bg-white rounded-xl px-2.5 py-1.5 text-xs" />
+                  <input type="text" value={locNewBn} onChange={(e) => setLocNewBn(e.target.value)} placeholder="Name (Bengali)" required className="border bg-white rounded-xl px-2.5 py-1.5 text-xs" />
+                  <input type="text" value={locNewPin} onChange={(e) => setLocNewPin(e.target.value)} placeholder="PIN (optional)" className="border bg-white rounded-xl px-2.5 py-1.5 text-xs" />
+                  <button type="submit" className="px-3 py-1.5 rounded-xl bg-brand-green text-white text-xs font-bold">
+                    + Save {locTier}
+                  </button>
+                </form>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-96 overflow-y-auto">
+                  {locItems.map((item) => {
+                    const active = item.is_active !== false;
+                    return (
+                      <div key={String(item.id)} className="p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <div className="font-bold truncate">{String(item.name_bn)} / {String(item.name_en)}</div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {item.parent_name ? `${String(item.parent_name)} • ` : ''}
+                            {item.pincode ? `PIN ${String(item.pincode)}` : String(item.code || '')}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleLocationActive(String(item.id), active)}
+                          className={`px-2.5 py-1 rounded-lg font-bold shrink-0 ${active ? 'bg-emerald-100 text-brand-green' : 'bg-slate-200 text-slate-600'}`}
+                        >
+                          {active ? t('admin.active') : t('admin.inactive')}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
@@ -785,6 +1368,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <input type="text" value={catNameEn} onChange={(e) => setCatNameEn(e.target.value)} placeholder={t('admin.title_en')} required className="w-full border rounded-xl px-3 py-2 text-sm" />
                 <input type="text" value={catDescBn} onChange={(e) => setCatDescBn(e.target.value)} placeholder={t('admin.desc_bn')} className="w-full border rounded-xl px-3 py-2 text-sm" />
                 <input type="text" value={catDescEn} onChange={(e) => setCatDescEn(e.target.value)} placeholder={t('admin.desc_en')} className="w-full border rounded-xl px-3 py-2 text-sm" />
+                <input type="text" value={catSubcategories} onChange={(e) => setCatSubcategories(e.target.value)} placeholder={t('extra.admin_subcategories_hint')} className="w-full border rounded-xl px-3 py-2 text-sm" />
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
                   <input type="checkbox" checked={catActive} onChange={(e) => setCatActive(e.target.checked)} className="w-4 h-4 accent-brand-green" />
                   <span>{t('admin.active')}</span>
@@ -808,6 +1392,10 @@ export const AdminDashboardPage: React.FC = () => {
                         setCatNameEn(String(c.name_en));
                         setCatDescBn(String(c.description_bn || ''));
                         setCatDescEn(String(c.description_en || ''));
+                        const subs = Array.isArray(c.subcategories)
+                          ? (c.subcategories as Array<Record<string, string>>).map((s) => s.name_en || s.slug).join(', ')
+                          : '';
+                        setCatSubcategories(subs);
                         setCatActive(c.is_active !== false);
                       }}
                       className="text-xs font-bold text-brand-blue hover:underline"
@@ -1034,8 +1622,272 @@ export const AdminDashboardPage: React.FC = () => {
               ))}
             </div>
           )}
+
+          {tab === 'security' && (
+            <div className="max-w-3xl space-y-6">
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-blue-50 text-brand-blue flex items-center justify-center">
+                      <KeyRound className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-extrabold text-slate-900">{t('admin.twofa_title')}</h2>
+                      <p className="text-xs text-slate-500">{t('admin.twofa_subtitle')}</p>
+                    </div>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${twoFaStatus.enabled ? 'bg-emerald-100 text-brand-green' : 'bg-amber-100 text-amber-800'}`}>
+                    {twoFaStatus.enabled ? t('admin.twofa_status_enabled') : t('admin.twofa_status_disabled')}
+                  </span>
+                </div>
+
+                {twoFaStatus.enabled && (
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 font-semibold">
+                    {t('admin.twofa_backup_remaining')}: {toLocaleDigits(twoFaStatus.backupCodesRemaining, language)}
+                  </div>
+                )}
+
+                {!twoFaStatus.enabled && !twoFaSetup && (
+                  <button
+                    type="button"
+                    onClick={handleStart2faSetup}
+                    className="px-5 py-2.5 rounded-xl bg-brand-blue hover:bg-blue-800 text-white text-sm font-bold"
+                  >
+                    {t('admin.twofa_enable_btn')}
+                  </button>
+                )}
+
+                {twoFaSetup && (
+                  <div className="p-5 rounded-2xl border border-blue-200 bg-blue-50/40 space-y-4">
+                    <div className="text-sm font-bold text-slate-900">{t('admin.twofa_scan_title')}</div>
+                    <div className="flex flex-col sm:flex-row gap-5 items-center">
+                      <img
+                        src={twoFaSetup.qrDataUrl}
+                        alt="Admin 2FA QR Code"
+                        className="w-44 h-44 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm shrink-0"
+                      />
+                      <div className="space-y-3 flex-1 min-w-0 w-full">
+                        <p className="text-xs text-slate-600">{t('admin.twofa_scan_desc')}</p>
+                        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+                          <code className="text-xs font-mono font-bold text-slate-800 break-all flex-1">
+                            {twoFaSetup.secretBase32}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(twoFaSetup.secretBase32);
+                              setCopiedSecret(true);
+                              setTimeout(() => setCopiedSecret(false), 2000);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700"
+                            aria-label="Copy secret"
+                          >
+                            {copiedSecret ? <Check className="w-4 h-4 text-brand-green" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <form onSubmit={handleConfirm2faSetup} className="flex flex-wrap gap-2 pt-1">
+                          <input
+                            type="text"
+                            maxLength={6}
+                            value={twoFaConfirmCode}
+                            onChange={(e) => setTwoFaConfirmCode(e.target.value.replace(/\D/g, ''))}
+                            placeholder={t('auth.otp_code')}
+                            required
+                            className="flex-1 min-w-[160px] border border-slate-300 bg-white rounded-xl px-3.5 py-2 text-sm text-center font-bold tracking-widest"
+                          />
+                          <button type="submit" className="px-4 py-2 rounded-xl bg-brand-green text-white text-xs font-bold">
+                            {t('admin.twofa_confirm_btn')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTwoFaSetup(null)}
+                            className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs font-bold"
+                          >
+                            {t('dashboard.close')}
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {twoFaBackupCodes && twoFaBackupCodes.length > 0 && (
+                  <div className="p-5 rounded-2xl border border-amber-300 bg-amber-50 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-extrabold text-sm text-amber-950">{t('admin.twofa_backup_title')}</div>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard?.writeText(twoFaBackupCodes.join('\n'))}
+                        className="px-3 py-1 rounded-lg bg-white border border-amber-300 text-xs font-bold text-amber-900 inline-flex items-center gap-1"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{t('admin.twofa_copy_all')}</span>
+                      </button>
+                    </div>
+                    <p className="text-xs text-amber-900">{t('admin.twofa_backup_warning')}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {twoFaBackupCodes.map((code) => (
+                        <div key={code} className="px-3 py-2 rounded-xl bg-white border border-amber-200 text-center font-mono text-xs font-bold text-slate-900">
+                          {code}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {twoFaStatus.enabled && (
+                  <form onSubmit={handleDisable2fa} className="p-5 rounded-2xl border border-red-200 bg-red-50/40 space-y-3">
+                    <div className="font-bold text-sm text-red-900">{t('admin.twofa_disable_title')}</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="password"
+                        value={twoFaDisablePassword}
+                        onChange={(e) => setTwoFaDisablePassword(e.target.value)}
+                        placeholder={t('auth.password')}
+                        required
+                        className="border border-slate-300 bg-white rounded-xl px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={twoFaDisableCode}
+                        onChange={(e) => setTwoFaDisableCode(e.target.value)}
+                        placeholder={t('auth.two_factor_code_placeholder')}
+                        required
+                        className="border border-slate-300 bg-white rounded-xl px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <button type="submit" className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold">
+                      {t('admin.twofa_disable_btn')}
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          )}
         </main>
       </div>
+
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <form onSubmit={handleSaveEditedUser} className="w-full max-w-lg bg-white rounded-3xl border border-slate-200 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-extrabold text-slate-900">{t('admin.edit_user_title')}</h2>
+              <button type="button" onClick={() => setEditingUser(null)} className="p-1.5 rounded-xl text-slate-500 hover:bg-slate-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">{t('auth.full_name')}</label>
+                <input
+                  type="text"
+                  value={editingUser.fullName}
+                  onChange={(e) => setEditingUser({ ...editingUser, fullName: e.target.value })}
+                  required
+                  className="w-full border rounded-xl px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">{t('auth.email')}</label>
+                <input
+                  type="email"
+                  value={editingUser.email}
+                  onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                  required
+                  className="w-full border rounded-xl px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">{t('auth.mobile')}</label>
+                <input
+                  type="tel"
+                  value={editingUser.mobileNumber}
+                  onChange={(e) => setEditingUser({ ...editingUser, mobileNumber: e.target.value })}
+                  required
+                  className="w-full border rounded-xl px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">{t('admin.role')}</label>
+                <select
+                  value={editingUser.role}
+                  disabled={editingUser.id === user.id}
+                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value as UserRole })}
+                  className="w-full border rounded-xl px-3 py-2 text-sm bg-white disabled:opacity-60"
+                >
+                  <option value="customer">customer</option>
+                  <option value="provider">provider</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('auth.address')}</label>
+              <textarea
+                value={editingUser.fullAddress}
+                onChange={(e) => setEditingUser({ ...editingUser, fullAddress: e.target.value })}
+                rows={2}
+                required
+                className="w-full border rounded-xl px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('admin.optional_new_password')}</label>
+              <input
+                type="password"
+                minLength={8}
+                value={editingUser.newPassword}
+                onChange={(e) => setEditingUser({ ...editingUser, newPassword: e.target.value })}
+                placeholder="••••••••"
+                className="w-full border rounded-xl px-3 py-2 text-sm"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editingUser.isVerified}
+                onChange={(e) => setEditingUser({ ...editingUser, isVerified: e.target.checked })}
+                className="w-4 h-4 accent-brand-green"
+              />
+              <span>{t('admin.verified')}</span>
+            </label>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setEditingUser(null)} className="px-4 py-2 rounded-xl border text-xs font-bold">
+                {t('dashboard.close')}
+              </button>
+              <button type="submit" disabled={userActionBusy} className="px-5 py-2 rounded-xl bg-brand-blue text-white text-xs font-bold disabled:opacity-60">
+                {userActionBusy ? t('home.loading') : t('dashboard.save_changes')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Delete User Confirmation Modal */}
+      {deletingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 p-6 space-y-4 shadow-2xl">
+            <h2 className="text-lg font-extrabold text-red-700">{t('admin.delete_user_title')}</h2>
+            <p className="text-sm text-slate-600">
+              {t('admin.delete_user_confirm')} <span className="font-bold text-slate-900">{deletingUser.fullName}</span> ({deletingUser.email})?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setDeletingUser(null)} className="px-4 py-2 rounded-xl border text-xs font-bold">
+                {t('dashboard.close')}
+              </button>
+              <button
+                type="button"
+                disabled={userActionBusy}
+                onClick={handleConfirmDeleteUser}
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold disabled:opacity-60"
+              >
+                {userActionBusy ? t('home.loading') : t('admin.delete_btn')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -65,7 +65,10 @@ class SessionManager(private val context: Context) {
                 mobileNumber = mobile,
                 fullAddress = address,
                 accountRole = obj.optString("role").ifBlank { obj.optString("accountRole", "customer") },
-                isVerified = obj.optBoolean("is_verified", true),
+                isVerified = if (obj.has("is_verified")) obj.optBoolean("is_verified", true)
+                else obj.optBoolean("isVerified", true),
+                twoFactorEnabled = if (obj.has("two_factor_enabled")) obj.optBoolean("two_factor_enabled", false)
+                else obj.optBoolean("twoFactorEnabled", false),
                 languagePreference = obj.optString("language_preference")
                     .ifBlank { obj.optString("languagePreference", "bn") },
                 bengaliNumerals = if (obj.has("bengali_numerals")) obj.optBoolean("bengali_numerals", true)
@@ -102,6 +105,7 @@ class SessionManager(private val context: Context) {
             put("full_address", u.fullAddress)
             put("role", u.accountRole)
             put("is_verified", u.isVerified)
+            put("two_factor_enabled", u.twoFactorEnabled)
             put("language_preference", u.languagePreference)
             put("bengali_numerals", u.bengaliNumerals)
             put("push_notifications_enabled", u.pushNotificationsEnabled)

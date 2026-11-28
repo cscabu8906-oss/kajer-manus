@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
+  Camera,
+  CheckCircle2,
   Eye,
   EyeOff,
   Lock,
@@ -13,9 +15,10 @@ import {
   Sparkles,
   UserPlus
 } from 'lucide-react';
-import { apiRequest } from '../lib/api';
+import { apiRequest, resolveMediaUrl, uploadPreAuthAvatar } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import type { User } from '../types';
+import { EMPTY_WB_LOCATION, LocationCascadingSelect } from '../components/LocationCascadingSelect';
+import type { SelectedWbLocation, User } from '../types';
 
 export const LoginPage: React.FC = () => {
   const { t } = useTranslation();
@@ -24,6 +27,8 @@ export const LoginPage: React.FC = () => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [tempToken, setTempToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -32,10 +37,30 @@ export const LoginPage: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await apiRequest<{ token: string; user: User }>('/auth/login', {
+      if (tempToken) {
+        const verified = await apiRequest<{ token: string; user: User }>('/auth/admin/2fa/verify-login', {
+          method: 'POST',
+          body: JSON.stringify({ tempToken, code: twoFactorCode.trim() })
+        });
+        await loginWithToken(verified.token, verified.user);
+        navigate(verified.user.role === 'admin' ? '/admin' : verified.user.role === 'provider' ? '/provider/dashboard' : '/dashboard');
+        return;
+      }
+
+      const res = await apiRequest<{ requires2fa?: boolean; tempToken?: string; token?: string; user: User }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: identifier.trim(), password })
       });
+
+      if (res.requires2fa && res.tempToken) {
+        setTempToken(res.tempToken);
+        setTwoFactorCode('');
+        return;
+      }
+
+      if (!res.token) {
+        throw new Error('Authentication token missing');
+      }
       await loginWithToken(res.token, res.user);
       navigate(res.user.role === 'admin' ? '/admin' : res.user.role === 'provider' ? '/provider/dashboard' : '/dashboard');
     } catch (err) {
@@ -111,65 +136,95 @@ export const LoginPage: React.FC = () => {
                   />
                   <div>
                     <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
-                      {t('auth.login_title')}
+                      {tempToken ? t('auth.two_factor_title') : t('auth.login_title')}
                     </h1>
                     <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                      {t('auth.login_card_subtitle')}
+                      {tempToken ? t('auth.two_factor_subtitle') : t('auth.login_card_subtitle')}
                     </p>
                   </div>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                      {t('auth.email_or_mobile')}
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  {tempToken ? (
+                    <div className="space-y-3">
+                      <label className="block text-sm font-semibold text-slate-700">
+                        {t('auth.two_factor_code_label')}
+                      </label>
                       <input
                         type="text"
-                        autoComplete="username"
-                        placeholder={t('auth.identifier_placeholder')}
-                        value={identifier}
-                        onChange={(e) => setIdentifier(e.target.value)}
+                        autoComplete="one-time-code"
+                        value={twoFactorCode}
+                        onChange={(e) => setTwoFactorCode(e.target.value)}
+                        placeholder={t('auth.two_factor_code_placeholder')}
                         required
-                        className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl pl-10 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-sm font-semibold text-slate-700">
-                        {t('auth.password')}
-                      </label>
-                      <Link
-                        to="/forgot-password"
-                        className="text-xs font-bold text-brand-blue hover:text-blue-800 hover:underline"
-                      >
-                        {t('auth.forgot_link')}
-                      </Link>
-                    </div>
-                    <div className="relative">
-                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl pl-10 pr-11 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
+                        className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl px-4 py-3 text-center text-base font-bold tracking-widest text-slate-900 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
                       />
                       <button
                         type="button"
-                        onClick={() => setShowPassword((prev) => !prev)}
-                        aria-label={showPassword ? t('auth.hide_password') : t('auth.show_password')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                        onClick={() => {
+                          setTempToken(null);
+                          setTwoFactorCode('');
+                          setError('');
+                        }}
+                        className="text-xs font-bold text-brand-blue hover:underline"
                       >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {t('auth.two_factor_back')}
                       </button>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                          {t('auth.email_or_mobile')}
+                        </label>
+                        <div className="relative">
+                          <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type="text"
+                            autoComplete="username"
+                            placeholder={t('auth.identifier_placeholder')}
+                            value={identifier}
+                            onChange={(e) => setIdentifier(e.target.value)}
+                            required
+                            className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl pl-10 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-sm font-semibold text-slate-700">
+                            {t('auth.password')}
+                          </label>
+                          <Link
+                            to="/forgot-password"
+                            className="text-xs font-bold text-brand-blue hover:text-blue-800 hover:underline"
+                          >
+                            {t('auth.forgot_link')}
+                          </Link>
+                        </div>
+                        <div className="relative">
+                          <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            autoComplete="current-password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl pl-10 pr-11 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            aria-label={showPassword ? t('auth.hide_password') : t('auth.show_password')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                          >
+                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {error && (
                     <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
@@ -184,7 +239,7 @@ export const LoginPage: React.FC = () => {
                     className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-brand-blue to-brand-green hover:from-blue-700 hover:to-emerald-800 text-white font-bold text-sm sm:text-base shadow-lg shadow-blue-900/20 inline-flex items-center justify-center gap-2 transition disabled:opacity-60"
                   >
                     <LogIn className="w-4 h-4" />
-                    <span>{loading ? t('home.loading') : t('auth.submit_login')}</span>
+                    <span>{loading ? t('home.loading') : tempToken ? t('auth.two_factor_verify_btn') : t('auth.submit_login')}</span>
                   </button>
                 </form>
 
@@ -226,6 +281,17 @@ export const RegisterPage: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
+  const [mobileOtpInput, setMobileOtpInput] = useState('');
+  const [mobileOtpSent, setMobileOtpSent] = useState(false);
+  const [mobileVerificationToken, setMobileVerificationToken] = useState('');
+  const [mobileOtpMsg, setMobileOtpMsg] = useState('');
+  const [otpBusy, setOtpBusy] = useState(false);
+
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+
+  const [wbLocation, setWbLocation] = useState<SelectedWbLocation>(EMPTY_WB_LOCATION);
+  const [locationHumanLabel, setLocationHumanLabel] = useState('');
   const [fullAddress, setFullAddress] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -235,10 +301,73 @@ export const RegisterPage: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    setPhotoUploading(true);
+    try {
+      const url = await uploadPreAuthAvatar(file);
+      setProfilePhotoUrl(url);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
+  const handleSendMobileOtp = async () => {
+    setError('');
+    setMobileOtpMsg('');
+    setOtpBusy(true);
+    try {
+      const res = await apiRequest<{ message: string }>('/auth/send-mobile-otp', {
+        method: 'POST',
+        body: JSON.stringify({
+          mobileNumber: mobileNumber.trim(),
+          ...(email.trim() ? { emailFallback: email.trim() } : {}),
+          languagePreference: language
+        })
+      });
+      setMobileOtpSent(true);
+      setMobileOtpMsg(res.message);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  const handleVerifyMobileOtp = async () => {
+    setError('');
+    setOtpBusy(true);
+    try {
+      const res = await apiRequest<{ verified: boolean; mobileVerificationToken: string }>(
+        '/auth/verify-mobile-otp',
+        {
+          method: 'POST',
+          body: JSON.stringify({ mobileNumber: mobileNumber.trim(), otp: mobileOtpInput.trim() })
+        }
+      );
+      setMobileVerificationToken(res.mobileVerificationToken);
+      setMobileOtpSent(false);
+      setMobileOtpMsg(t('extra.mobile_verified_badge'));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {
       setError(t('auth.password_mismatch'));
+      return;
+    }
+    const resolvedFullAddress = fullAddress.trim() || locationHumanLabel || 'West Bengal';
+    if (resolvedFullAddress.length < 4) {
+      setError(t('auth.address'));
       return;
     }
     setError('');
@@ -250,7 +379,21 @@ export const RegisterPage: React.FC = () => {
           fullName: fullName.trim(),
           email: email.trim(),
           mobileNumber: mobileNumber.trim(),
-          fullAddress: fullAddress.trim(),
+          mobileVerificationToken,
+          profilePhotoUrl,
+          fullAddress: resolvedFullAddress,
+          stateName: 'West Bengal',
+          districtId: wbLocation.districtId || null,
+          subdivisionId: wbLocation.subdivisionId || null,
+          areaType: wbLocation.areaType || '',
+          localBodyId: wbLocation.localBodyId || null,
+          gpWardId: wbLocation.gpWardId || null,
+          villageId: wbLocation.villageId || null,
+          villageLocality: wbLocation.villageLocality || '',
+          pincode: wbLocation.pincode || '',
+          latitude: wbLocation.latitude,
+          longitude: wbLocation.longitude,
+          locationConsent: wbLocation.gpsConsent,
           password,
           accountRole,
           languagePreference: language,
@@ -267,38 +410,36 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-12">
-      <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-6">
-        <h1 className="text-2xl font-extrabold text-slate-900">{t('auth.register_title')}</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="max-w-3xl mx-auto px-4 py-10">
+      <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.full_name')}</label>
-            <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
+            <h1 className="text-2xl font-extrabold text-slate-900">{t('auth.register_title')}</h1>
+            <p className="text-xs text-slate-500 mt-1">{t('brand.tagline')}</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.mobile')}</label>
-              <input type="tel" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.email')}</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.address')}</label>
-            <textarea value={fullAddress} onChange={(e) => setFullAddress(e.target.value)} rows={2} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.password')}</label>
-              <input type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.confirm_password')}</label>
-              <input type="password" minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-            </div>
-          </div>
+
+          {/* Optional Profile Photo */}
+          <label className="inline-flex items-center gap-3 cursor-pointer">
+            {profilePhotoUrl ? (
+              <img
+                src={resolveMediaUrl(profilePhotoUrl)}
+                alt="Avatar"
+                className="w-12 h-12 rounded-full object-cover border-2 border-brand-green"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-slate-100 border border-slate-300 flex items-center justify-center text-slate-500">
+                <Camera className="w-5 h-5" />
+              </div>
+            )}
+            <span className="text-xs font-bold text-brand-blue hover:underline">
+              {photoUploading ? t('extra.uploading') : t('extra.optional_photo')}
+            </span>
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePhotoUpload} className="hidden" />
+          </label>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Role selector first so customer vs provider choice is clear */}
           <div>
             <label className="block text-sm font-semibold mb-2">{t('auth.role_label')}</label>
             <div className="grid grid-cols-2 gap-3">
@@ -318,11 +459,121 @@ export const RegisterPage: React.FC = () => {
               </button>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-1">{t('auth.full_name')}</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1">{t('auth.email')}</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Mobile Number + OTP Verification */}
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold">{t('auth.mobile')}</label>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="tel"
+                value={mobileNumber}
+                onChange={(e) => {
+                  setMobileNumber(e.target.value);
+                  setMobileVerificationToken('');
+                }}
+                required
+                className="flex-1 min-w-[200px] border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
+              />
+              {mobileVerificationToken ? (
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 text-brand-green border border-emerald-200 text-xs font-bold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{t('extra.mobile_verified_badge')}</span>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={otpBusy || mobileNumber.replace(/\D/g, '').length < 10}
+                  onClick={handleSendMobileOtp}
+                  className="px-4 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-brand-blue border border-blue-200 text-xs font-bold disabled:opacity-50"
+                >
+                  {t('extra.mobile_otp_send')}
+                </button>
+              )}
+            </div>
+            {mobileOtpSent && !mobileVerificationToken && (
+              <div className="flex gap-2 items-center pt-1">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={mobileOtpInput}
+                  onChange={(e) => setMobileOtpInput(e.target.value.replace(/\D/g, ''))}
+                  placeholder={t('extra.mobile_otp_code')}
+                  className="w-48 border border-slate-300 rounded-xl px-3 py-2 text-sm text-center font-bold tracking-widest"
+                />
+                <button
+                  type="button"
+                  disabled={otpBusy || mobileOtpInput.length !== 6}
+                  onClick={handleVerifyMobileOtp}
+                  className="px-4 py-2 rounded-xl bg-brand-green text-white text-xs font-bold disabled:opacity-50"
+                >
+                  {t('extra.mobile_otp_verify')}
+                </button>
+              </div>
+            )}
+            {mobileOtpMsg && <div className="text-xs font-semibold text-brand-green">{mobileOtpMsg}</div>}
+          </div>
+
+          {/* West Bengal Hierarchical Cascading Location Selector */}
+          <LocationCascadingSelect
+            value={wbLocation}
+            onChange={(next, label) => {
+              setWbLocation(next);
+              const str = language === 'bn' ? label?.bn || label?.en : label?.en || label?.bn;
+              if (str) setLocationHumanLabel(str);
+            }}
+          />
+
+          <div>
+            <label className="block text-sm font-semibold mb-1">{t('auth.address')}</label>
+            <textarea
+              value={fullAddress}
+              onChange={(e) => setFullAddress(e.target.value)}
+              rows={2}
+              placeholder={locationHumanLabel || t('auth.address')}
+              required
+              className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-1">{t('auth.password')}</label>
+              <input type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1">{t('auth.confirm_password')}</label>
+              <input type="password" minLength={8} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
+            </div>
+          </div>
+
           {error && <div className="p-3 rounded-xl bg-red-50 text-red-700 text-sm">{error}</div>}
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-brand-orange hover:bg-orange-600 text-white font-bold transition"
+            className="w-full py-3.5 rounded-xl bg-brand-orange hover:bg-orange-600 text-white font-bold transition disabled:opacity-60"
           >
             {loading ? t('home.loading') : t('auth.submit_register')}
           </button>

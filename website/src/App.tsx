@@ -24,6 +24,7 @@ export const App: React.FC = () => {
             <Route path="/workers/:id" element={<WorkerProfilePage />} />
             <Route path="/book" element={<BookingPage />} />
             <Route path="/book/:serviceId" element={<BookingPage />} />
+            <Route path="/book/provider/:providerId" element={<BookingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify-otp" element={<Navigate to="/forgot-password" replace />} />

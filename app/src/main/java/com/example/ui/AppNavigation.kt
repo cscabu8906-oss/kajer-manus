@@ -79,6 +79,7 @@ import com.example.ui.components.ContactSupportDialog
 import com.example.ui.components.LanguageSelectorCard
 import com.example.ui.components.LanguageTogglePill
 import com.example.ui.components.LegalInfoDialog
+import com.example.ui.components.RazorpayCheckoutDialog
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.BookingsScreen
 import com.example.ui.screens.HomeMarketplaceScreen
@@ -138,6 +139,10 @@ fun AuthenticatedApp(
     val adminServices by viewModel.adminServicesState.collectAsStateWithLifecycle()
     val adminBookings by viewModel.adminBookingsState.collectAsStateWithLifecycle()
     val adminUsers by viewModel.adminUsersState.collectAsStateWithLifecycle()
+    val admin2faStatus by viewModel.admin2faStatus.collectAsStateWithLifecycle()
+    val admin2faSetup by viewModel.admin2faSetup.collectAsStateWithLifecycle()
+    val admin2faBackupCodes by viewModel.admin2faBackupCodes.collectAsStateWithLifecycle()
+    val pendingRazorpayOrder by viewModel.pendingRazorpayOrder.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategoryKey.collectAsStateWithLifecycle()
     val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
@@ -219,6 +224,13 @@ fun AuthenticatedApp(
     val reviewSavedMsg = t("booking.review_submitted")
     val contactSentMsg = t("settings.contact_sent")
     val genericErrMsg = t("common.error_generic")
+    val paymentVerifiedMsg = t("booking.payment_verified_msg")
+    val paymentFailedMsg = t("booking.payment_failed_msg")
+    val userUpdatedMsg = t("admin.user_updated")
+    val userDeletedMsg = t("admin.user_deleted")
+    val paymentUpdatedMsg = t("admin.payment_updated")
+    val twofaEnabledMsg = t("admin.twofa_enabled_msg")
+    val twofaDisabledMsg = t("admin.twofa_disabled_msg")
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -430,7 +442,7 @@ fun AuthenticatedApp(
                                 onSearchChange = viewModel::setSearchQuery,
                                 onSelectCategory = viewModel::selectCategory,
                                 onRefresh = viewModel::loadServices,
-                                onCreateBooking = { svc, name, phone, addr, date, slot, notes, onBooked ->
+                                onCreateBooking = { svc, name, phone, addr, date, slot, notes, paymentMethod, onBooked ->
                                     viewModel.createBooking(
                                         service = svc,
                                         customerName = name,
@@ -439,6 +451,7 @@ fun AuthenticatedApp(
                                         scheduledDate = date,
                                         scheduledSlot = slot,
                                         notes = notes,
+                                        paymentMethod = paymentMethod,
                                         language = currentLanguage,
                                         successMsg = bookingCreatedMsg,
                                         errorMsg = genericErrMsg,
@@ -471,7 +484,10 @@ fun AuthenticatedApp(
                                 onApplyProviderProfile = { bioBn, bioEn, cats, locBn, locEn, exp, onDone ->
                                     viewModel.applyProviderProfile(bioBn, bioEn, cats, locBn, locEn, exp, providerSavedMsg, genericErrMsg, onDone)
                                 },
-                                onToggleProviderAvailability = viewModel::toggleProviderAvailability
+                                onToggleProviderAvailability = viewModel::toggleProviderAvailability,
+                                onPayOnline = { booking ->
+                                    viewModel.startRazorpayPayment(booking.id, genericErrMsg)
+                                }
                             )
                         }
 
@@ -504,6 +520,7 @@ fun AuthenticatedApp(
 
                         composable(ROUTE_ADMIN) {
                             AdminDashboardScreen(
+                                currentUserId = currentUserId,
                                 isAdmin = isAdmin,
                                 currentLanguage = currentLanguage,
                                 stats = adminStats,
@@ -511,6 +528,9 @@ fun AuthenticatedApp(
                                 services = adminServices,
                                 bookings = adminBookings,
                                 users = adminUsers,
+                                admin2faStatus = admin2faStatus,
+                                admin2faSetup = admin2faSetup,
+                                admin2faBackupCodes = admin2faBackupCodes,
                                 isMutating = isMutating,
                                 onSelectLanguage = { lang -> viewModel.switchLanguage(lang, bengaliNumerals) },
                                 onRefresh = viewModel::loadAdminData,
@@ -522,13 +542,54 @@ fun AuthenticatedApp(
                                 },
                                 onUpdateBookingStatus = { booking, newStatus ->
                                     viewModel.updateBookingStatus(booking, newStatus, bookingStatusMsg, genericErrMsg)
-                                }
+                                },
+                                onUpdateBookingPayment = { booking, status ->
+                                    viewModel.updateBookingPaymentAdmin(booking.id, status, null, paymentUpdatedMsg, genericErrMsg)
+                                },
+                                onUpdateUser = { uid, name, email, mobile, addr, role, verified, newPass, onDone ->
+                                    viewModel.updateUserAdmin(uid, name, email, mobile, addr, role, verified, newPass, userUpdatedMsg, genericErrMsg, onDone)
+                                },
+                                onDeleteUser = { uid, onDone ->
+                                    viewModel.deleteUserAdmin(uid, userDeletedMsg, genericErrMsg, onDone)
+                                },
+                                onStart2faSetup = {
+                                    viewModel.startAdmin2faSetup(genericErrMsg)
+                                },
+                                onConfirm2faSetup = { code ->
+                                    viewModel.confirmAdmin2fa(code, twofaEnabledMsg, genericErrMsg)
+                                },
+                                onDisable2fa = { password, code, onDone ->
+                                    viewModel.disableAdmin2fa(password, code, twofaDisabledMsg, genericErrMsg, onDone)
+                                },
+                                onClear2faBackupCodes = viewModel::clearAdmin2faBackupCodes
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    pendingRazorpayOrder?.let { order ->
+        RazorpayCheckoutDialog(
+            order = order,
+            onSuccess = { orderId, paymentId, signature ->
+                viewModel.verifyRazorpayPayment(
+                    bookingId = order.bookingId,
+                    orderId = orderId,
+                    paymentId = paymentId,
+                    signature = signature,
+                    successMsg = paymentVerifiedMsg,
+                    errorMsg = paymentFailedMsg
+                )
+            },
+            onError = { errText ->
+                viewModel.dismissRazorpayDialog(errText.ifBlank { paymentFailedMsg })
+            },
+            onDismiss = {
+                viewModel.dismissRazorpayDialog()
+            }
+        )
     }
 
     if (showPrivacy) {

@@ -79,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.KajerManushRepository
+import com.example.data.LoginOutcome
 import com.example.data.ServiceCategory
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
@@ -110,6 +111,8 @@ fun OnboardingAuthScreen(
     var showForgotDialog by rememberSaveable { mutableStateOf(false) }
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
     var showTerms by rememberSaveable { mutableStateOf(false) }
+    var pending2faTempToken by rememberSaveable { mutableStateOf<String?>(null) }
+    var pending2faEmail by rememberSaveable { mutableStateOf("") }
 
     val invalidIdentifierErr = t("auth.err_identifier_invalid")
     val shortPasswordErr = t("auth.err_password_short")
@@ -492,8 +495,14 @@ fun OnboardingAuthScreen(
                                             scope.launch {
                                                 val result = repository.login(trimmedIdentifier, password)
                                                 isLoading = false
-                                                result.onSuccess {
-                                                    onAuthSuccess()
+                                                result.onSuccess { outcome ->
+                                                    when (outcome) {
+                                                        is LoginOutcome.Authenticated -> onAuthSuccess()
+                                                        is LoginOutcome.TwoFactorRequired -> {
+                                                            pending2faTempToken = outcome.tempToken
+                                                            pending2faEmail = outcome.email
+                                                        }
+                                                    }
                                                 }.onFailure { err ->
                                                     authError = err.localizedMessage ?: "Sign in failed"
                                                 }
@@ -688,6 +697,86 @@ fun OnboardingAuthScreen(
             onDismiss = { showTerms = false }
         )
     }
+
+    pending2faTempToken?.let { tempToken ->
+        AdminTwoFactorChallengeDialog(
+            repository = repository,
+            tempToken = tempToken,
+            email = pending2faEmail,
+            onDismiss = { pending2faTempToken = null },
+            onVerified = {
+                pending2faTempToken = null
+                onAuthSuccess()
+            }
+        )
+    }
+}
+
+@Composable
+private fun AdminTwoFactorChallengeDialog(
+    repository: KajerManushRepository,
+    tempToken: String,
+    email: String,
+    onDismiss: () -> Unit,
+    onVerified: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var code by rememberSaveable { mutableStateOf("") }
+    var busy by rememberSaveable { mutableStateOf(false) }
+    var errorMsg by rememberSaveable { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("auth.two_factor_title")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${t("auth.two_factor_subtitle")} $email", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.take(12); errorMsg = null },
+                    label = { Text(t("auth.two_factor_code")) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("admin_2fa_code_input")
+                )
+                errorMsg?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !busy && code.trim().length >= 6,
+                modifier = Modifier.testTag("admin_2fa_verify_button"),
+                onClick = {
+                    busy = true
+                    errorMsg = null
+                    scope.launch {
+                        val res = repository.verifyAdmin2faLogin(tempToken, code)
+                        busy = false
+                        res.onSuccess { onVerified() }
+                            .onFailure { errorMsg = it.localizedMessage }
+                    }
+                }
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(t("auth.two_factor_verify_btn"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(t("common.cancel"))
+            }
+        }
+    )
 }
 
 @Composable

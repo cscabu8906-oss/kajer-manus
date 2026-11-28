@@ -228,3 +228,34 @@ INSERT INTO site_content (key, value_bn, value_en) VALUES
   ('hero_description', 'আপনার এলাকার দক্ষ ও নির্ভরযোগ্য কর্মী খুঁজুন এবং সহজেই প্রয়োজনীয় পরিষেবা বুক করুন।', 'Find skilled and trusted professionals in your area and book services easily.'),
   ('announcement_banner', 'কলকাতা ও পশ্চিমবঙ্গ জুড়ে দ্রুত এবং নির্ভরযোগ্য গৃহপরিষেবা', 'Fast and trusted home services across Kolkata & West Bengal')
 ON CONFLICT (key) DO NOTHING;
+
+-- Non-destructive incremental schema additions for Admin 2FA & Razorpay Booking Payments
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_temp_secret TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_backup_codes JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) NOT NULL DEFAULT 'cash';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS razorpay_order_id VARCHAR(80) NOT NULL DEFAULT '';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS razorpay_payment_id VARCHAR(80) NOT NULL DEFAULT '';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id UUID NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  gateway VARCHAR(20) NOT NULL DEFAULT 'razorpay',
+  razorpay_order_id VARCHAR(80) NOT NULL UNIQUE,
+  razorpay_payment_id VARCHAR(80) NOT NULL DEFAULT '',
+  razorpay_signature TEXT NOT NULL DEFAULT '',
+  amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+  currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+  status VARCHAR(20) NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'paid', 'failed', 'refunded')),
+  failure_reason TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_payments_booking ON payments (booking_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bookings_payment_status ON bookings (payment_status, created_at DESC);
+

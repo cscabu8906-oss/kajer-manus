@@ -75,7 +75,7 @@ export const HomePage: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate(`/services?q=${encodeURIComponent(searchQuery.trim())}`);
+    navigate(`/workers?q=${encodeURIComponent(searchQuery.trim())}`);
   };
 
   const displayCategorySlugs = categories.length ? categories.map((c) => c.slug) : [...CATEGORY_SLUGS];
@@ -157,11 +157,18 @@ export const HomePage: React.FC = () => {
             {/* Prominent Action Buttons */}
             <div className="flex flex-wrap gap-3 pt-2">
               <Link
-                to="/services"
+                to="/workers"
                 className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white text-brand-blue font-bold hover:bg-blue-50 transition shadow-md"
               >
-                <span>{t('home.cta_find_services')}</span>
+                <MapPin className="w-4 h-4 text-brand-orange" />
+                <span>{t('nav.workers')}</span>
                 <ArrowRight className="w-4 h-4" />
+              </Link>
+              <Link
+                to="/services"
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold border border-white/25 transition"
+              >
+                <span>{t('home.cta_find_services')}</span>
               </Link>
               <Link
                 to="/register?role=provider"
@@ -231,8 +238,8 @@ export const HomePage: React.FC = () => {
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">{t('home.categories_title')}</h2>
             <p className="text-slate-600 mt-1">{t('home.categories_subtitle')}</p>
           </div>
-          <Link to="/services" className="text-brand-blue font-semibold inline-flex items-center gap-1 hover:underline">
-            <span>{t('nav.services')}</span>
+          <Link to="/workers" className="text-brand-blue font-semibold inline-flex items-center gap-1 hover:underline">
+            <span>{t('nav.workers')}</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -244,7 +251,7 @@ export const HomePage: React.FC = () => {
             return (
               <Link
                 key={slug}
-                to={`/services?category=${slug}`}
+                to={`/workers?category=${slug}`}
                 className="group bg-white rounded-2xl p-4 border border-slate-200 hover:border-brand-blue hover:shadow-lg transition flex flex-col items-center text-center gap-3"
               >
                 <div className="w-12 h-12 rounded-xl bg-blue-50 text-brand-blue group-hover:bg-brand-green group-hover:text-white flex items-center justify-center transition">
@@ -368,9 +375,14 @@ export const HomePage: React.FC = () => {
                     <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                     {toLocaleDigits(Number(w.rating_avg).toFixed(1), language)} ({toLocaleDigits(w.reviews_count, language)})
                   </span>
-                  <Link to={`/workers/${w.id}`} className="text-brand-blue font-bold hover:underline">
-                    {t('home.view_profile')}
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <Link to={`/workers/${w.id}`} className="text-brand-blue font-bold hover:underline">
+                      {t('home.view_profile')}
+                    </Link>
+                    <Link to={`/book/provider/${w.user_id}`} className="px-3 py-1.5 rounded-lg bg-brand-orange text-white font-bold">
+                      {t('home.book_now')}
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}

@@ -36,6 +36,56 @@ enum class BookingStatus(val key: String, val i18nKey: String) {
     }
 }
 
+enum class PaymentMethod(val key: String, val i18nKey: String) {
+    CASH("cash", "booking.method_cash"),
+    RAZORPAY("razorpay", "booking.method_razorpay");
+
+    companion object {
+        fun fromKey(raw: String?): PaymentMethod =
+            entries.firstOrNull { it.key == raw } ?: CASH
+    }
+}
+
+enum class PaymentStatus(val key: String, val i18nKey: String) {
+    UNPAID("unpaid", "booking.payment_unpaid"),
+    PENDING("pending", "booking.payment_pending"),
+    PAID("paid", "booking.payment_paid"),
+    FAILED("failed", "booking.payment_failed"),
+    REFUNDED("refunded", "booking.payment_refunded");
+
+    companion object {
+        fun fromKey(raw: String?): PaymentStatus =
+            entries.firstOrNull { it.key == raw } ?: UNPAID
+    }
+}
+
+sealed interface LoginOutcome {
+    data class Authenticated(val user: UserProfile) : LoginOutcome
+    data class TwoFactorRequired(val tempToken: String, val email: String) : LoginOutcome
+}
+
+data class AdminTwoFactorStatus(
+    val enabled: Boolean = false,
+    val backupCodesRemaining: Int = 0
+)
+
+data class AdminTwoFactorSetup(
+    val secretBase32: String = "",
+    val otpauthUrl: String = ""
+)
+
+data class RazorpayOrderPayload(
+    val bookingId: String,
+    val orderId: String,
+    val amountPaise: Long,
+    val currency: String,
+    val keyId: String,
+    val serviceTitle: String,
+    val prefillName: String,
+    val prefillEmail: String,
+    val prefillContact: String
+)
+
 data class UserProfile(
     val id: String = "",
     val userId: String = "",
@@ -45,6 +95,7 @@ data class UserProfile(
     val fullAddress: String = "",
     val accountRole: String = "customer",
     val isVerified: Boolean = true,
+    val twoFactorEnabled: Boolean = false,
     val languagePreference: String = "bn",
     val bengaliNumerals: Boolean = true,
     val pushNotificationsEnabled: Boolean = true,
@@ -120,6 +171,11 @@ data class ServiceBooking(
     val scheduledDate: String = "",
     val scheduledSlot: String = "",
     val amountInr: Long = 0L,
+    val paymentMethod: String = "cash",
+    val paymentStatus: String = "unpaid",
+    val razorpayOrderId: String = "",
+    val razorpayPaymentId: String = "",
+    val paidAt: String = "",
     val notes: String = "",
     val status: String = "pending",
     val languageAtBooking: String = "bn",
@@ -134,6 +190,12 @@ data class ServiceBooking(
 
     val statusEnum: BookingStatus
         get() = BookingStatus.fromKey(status)
+
+    val paymentMethodEnum: PaymentMethod
+        get() = PaymentMethod.fromKey(paymentMethod)
+
+    val paymentStatusEnum: PaymentStatus
+        get() = PaymentStatus.fromKey(paymentStatus)
 }
 
 data class UserNotification(
@@ -161,6 +223,8 @@ data class AdminStats(
     val pendingProviders: Int = 0,
     val totalBookings: Int = 0,
     val pendingBookings: Int = 0,
+    val paidBookings: Int = 0,
+    val paidRevenueInr: Long = 0L,
     val totalCategories: Int = 12,
     val openComplaints: Int = 0
 )

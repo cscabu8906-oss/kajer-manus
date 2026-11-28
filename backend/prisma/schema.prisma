@@ -1,0 +1,508 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model WbDistrict {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code       String   @unique @db.VarChar(40)
+  lgdCode    String   @default("") @map("lgd_code") @db.VarChar(40)
+  stateCode  String   @default("19") @map("state_code") @db.VarChar(10)
+  nameEn     String   @map("name_en") @db.VarChar(120)
+  nameBn     String   @map("name_bn") @db.VarChar(120)
+  latitude   Float?
+  longitude  Float?
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  subdivisions WbSubdivision[]
+  localBodies  WbLocalBody[]
+
+  @@index([isActive, nameEn], map: "idx_wb_districts_active_name")
+  @@map("wb_districts")
+}
+
+model WbSubdivision {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String     @unique @db.VarChar(80)
+  districtId   String     @map("district_id") @db.Uuid
+  districtCode String     @map("district_code") @db.VarChar(40)
+  nameEn       String     @map("name_en") @db.VarChar(120)
+  nameBn       String     @map("name_bn") @db.VarChar(120)
+  latitude     Float?
+  longitude    Float?
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  district     WbDistrict @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  localBodies  WbLocalBody[]
+
+  @@index([districtId, isActive, nameEn], map: "idx_wb_subdivisions_district")
+  @@map("wb_subdivisions")
+}
+
+model WbLocalBody {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String         @unique @db.VarChar(60)
+  lgdCode       String         @default("") @map("lgd_code") @db.VarChar(40)
+  districtId    String         @map("district_id") @db.Uuid
+  subdivisionId String?        @map("subdivision_id") @db.Uuid
+  areaType      String         @map("area_type") @db.VarChar(16)
+  bodyType      String         @map("body_type") @db.VarChar(30)
+  nameEn        String         @map("name_en") @db.VarChar(140)
+  nameBn        String         @map("name_bn") @db.VarChar(140)
+  pincodes      Json           @default("[]")
+  latitude      Float?
+  longitude     Float?
+  isActive      Boolean        @default(true) @map("is_active")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  district    WbDistrict     @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  subdivision WbSubdivision? @relation(fields: [subdivisionId], references: [id], onDelete: SetNull)
+  gpWards     WbGpWard[]
+
+  @@index([districtId, subdivisionId, areaType, isActive], map: "idx_wb_local_bodies_lookup")
+  @@map("wb_local_bodies")
+}
+
+model WbGpWard {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String      @unique @db.VarChar(60)
+  lgdCode       String      @default("") @map("lgd_code") @db.VarChar(40)
+  districtId    String      @map("district_id") @db.Uuid
+  subdivisionId String?     @map("subdivision_id") @db.Uuid
+  localBodyId   String      @map("local_body_id") @db.Uuid
+  unitType      String      @map("unit_type") @db.VarChar(16)
+  wardNumber    String?     @map("ward_number") @db.VarChar(20)
+  nameEn        String      @map("name_en") @db.VarChar(160)
+  nameBn        String      @map("name_bn") @db.VarChar(160)
+  pincode       String?     @db.VarChar(16)
+  latitude      Float?
+  longitude     Float?
+  isActive      Boolean     @default(true) @map("is_active")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime    @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  localBody WbLocalBody @relation(fields: [localBodyId], references: [id], onDelete: Restrict)
+  villages  WbVillage[]
+
+  @@index([localBodyId, unitType, isActive, nameEn], map: "idx_wb_gp_wards_local_body")
+  @@index([districtId], map: "idx_wb_gp_wards_district")
+  @@map("wb_gp_wards")
+}
+
+model WbVillage {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String    @unique @db.VarChar(80)
+  lgdCode       String?   @map("lgd_code") @db.VarChar(40)
+  districtId    String    @map("district_id") @db.Uuid
+  subdivisionId String?   @map("subdivision_id") @db.Uuid
+  localBodyId   String    @map("local_body_id") @db.Uuid
+  gpWardId      String?   @map("gp_ward_id") @db.Uuid
+  localityType  String    @default("village") @map("locality_type") @db.VarChar(24)
+  nameEn        String    @map("name_en") @db.VarChar(180)
+  nameBn        String    @map("name_bn") @db.VarChar(180)
+  pincode       String?   @db.VarChar(16)
+  latitude      Float?
+  longitude     Float?
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  gpWard WbGpWard? @relation(fields: [gpWardId], references: [id], onDelete: SetNull)
+
+  @@index([gpWardId, isActive], map: "idx_wb_villages_gp_ward")
+  @@index([localBodyId, localityType, isActive], map: "idx_wb_villages_local_body")
+  @@index([pincode], map: "idx_wb_villages_pincode")
+  @@map("wb_villages")
+}
+
+model WbPincode {
+  pincode       String   @id @db.VarChar(10)
+  districtId    String?  @map("district_id") @db.Uuid
+  subdivisionId String?  @map("subdivision_id") @db.Uuid
+  localBodyId   String?  @map("local_body_id") @db.Uuid
+  gpWardId      String?  @map("gp_ward_id") @db.Uuid
+  villageId     String?  @map("village_id") @db.Uuid
+  latitude      Float?
+  longitude     Float?
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("wb_pincodes")
+}
+
+model User {
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName                  String   @map("full_name") @db.VarChar(120)
+  email                     String   @unique @db.VarChar(180)
+  mobileNumber              String   @map("mobile_number") @db.VarChar(24)
+  fullAddress               String   @map("full_address")
+  passwordHash              String   @map("password_hash")
+  role                      String   @default("customer") @db.VarChar(20)
+  isVerified                Boolean  @default(false) @map("is_verified")
+  mobileVerified            Boolean  @default(false) @map("mobile_verified")
+  profilePhotoUrl           String   @default("") @map("profile_photo_url")
+  stateName                 String   @default("West Bengal") @map("state_name") @db.VarChar(60)
+  districtId                String?  @map("district_id") @db.Uuid
+  subdivisionId             String?  @map("subdivision_id") @db.Uuid
+  areaType                  String   @default("") @map("area_type") @db.VarChar(16)
+  localBodyId               String?  @map("local_body_id") @db.Uuid
+  gpWardId                  String?  @map("gp_ward_id") @db.Uuid
+  villageId                 String?  @map("village_id") @db.Uuid
+  villageLocality           String   @default("") @map("village_locality")
+  pincode                   String   @default("") @db.VarChar(16)
+  latitude                  Float?
+  longitude                 Float?
+  locationConsent           Boolean  @default(false) @map("location_consent")
+  languagePreference        String   @default("bn") @map("language_preference") @db.VarChar(5)
+  bengaliNumerals           Boolean  @default(true) @map("bengali_numerals")
+  pushNotificationsEnabled  Boolean  @default(true) @map("push_notifications_enabled")
+  emailNotificationsEnabled Boolean  @default(true) @map("email_notifications_enabled")
+  twoFactorEnabled          Boolean  @default(false) @map("two_factor_enabled")
+  twoFactorSecret           String   @default("") @map("two_factor_secret")
+  twoFactorTempSecret       String   @default("") @map("two_factor_temp_secret")
+  twoFactorBackupCodes      Json     @default("[]") @map("two_factor_backup_codes")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  providerProfile      ProviderProfile?
+  providerAvailability ProviderAvailability?
+  serviceAreas         ProviderServiceArea[]
+  addresses            UserAddress[]
+
+  @@index([mobileNumber], map: "idx_users_mobile")
+  @@index([districtId], map: "idx_users_district")
+  @@index([localBodyId], map: "idx_users_local_body")
+  @@index([pincode], map: "idx_users_pincode")
+  @@map("users")
+}
+
+model UserAddress {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  label           String   @db.VarChar(60)
+  addressLine     String   @map("address_line")
+  city            String   @default("Kolkata") @db.VarChar(80)
+  pincode         String?  @default("") @db.VarChar(16)
+  districtId      String?  @map("district_id") @db.Uuid
+  subdivisionId   String?  @map("subdivision_id") @db.Uuid
+  areaType        String   @default("") @map("area_type") @db.VarChar(16)
+  localBodyId     String?  @map("local_body_id") @db.Uuid
+  gpWardId        String?  @map("gp_ward_id") @db.Uuid
+  villageId       String?  @map("village_id") @db.Uuid
+  villageLocality String   @default("") @map("village_locality")
+  latitude        Float?
+  longitude       Float?
+  isDefault       Boolean  @default(false) @map("is_default")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_addresses")
+}
+
+model OtpCode {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                 String   @db.VarChar(180)
+  channel               String   @default("email") @db.VarChar(16)
+  target                String   @default("") @db.VarChar(180)
+  purpose               String   @db.VarChar(30)
+  codeHash              String   @map("code_hash")
+  verificationTokenHash String   @default("") @map("verification_token_hash")
+  expiresAt             DateTime @map("expires_at") @db.Timestamptz(6)
+  consumed              Boolean  @default(false)
+  attempts              Int      @default(0)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([email, purpose, createdAt(sort: Desc)], map: "idx_otp_email_purpose")
+  @@index([target, purpose, createdAt(sort: Desc)], map: "idx_otp_target_purpose")
+  @@map("otp_codes")
+}
+
+model ServiceCategory {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug          String   @unique @db.VarChar(60)
+  nameBn        String   @map("name_bn") @db.VarChar(120)
+  nameEn        String   @map("name_en") @db.VarChar(120)
+  descriptionBn String   @default("") @map("description_bn")
+  descriptionEn String   @default("") @map("description_en")
+  subcategories Json     @default("[]")
+  iconKey       String   @default("wrench") @map("icon_key") @db.VarChar(40)
+  sortOrder     Int      @default(0) @map("sort_order")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("service_categories")
+}
+
+model ProviderProfile {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String   @unique @map("user_id") @db.Uuid
+  bioBn                String   @default("") @map("bio_bn")
+  bioEn                String   @default("") @map("bio_en")
+  photoUrl             String   @default("") @map("photo_url")
+  serviceCategories    String[] @default([]) @map("service_categories")
+  subcategories        String[] @default([])
+  skills               String[] @default([])
+  startingPriceInr     Int      @default(299) @map("starting_price_inr")
+  workingHours         Json     @default("{\"days\":[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\"],\"start\":\"09:00\",\"end\":\"20:00\"}") @map("working_hours")
+  portfolioPhotos      Json     @default("[]") @map("portfolio_photos")
+  idDocType            String   @default("") @map("id_doc_type") @db.VarChar(40)
+  idDocNumberMasked    String   @default("") @map("id_doc_number_masked") @db.VarChar(40)
+  idDocUrls            Json     @default("[]") @map("id_doc_urls")
+  idVerificationStatus String   @default("pending") @map("id_verification_status") @db.VarChar(20)
+  idVerificationNote   String   @default("") @map("id_verification_note")
+  serviceLocationBn    String   @default("কলকাতা") @map("service_location_bn") @db.VarChar(140)
+  serviceLocationEn    String   @default("Kolkata") @map("service_location_en") @db.VarChar(140)
+  publicAreaLabelBn    String   @default("") @map("public_area_label_bn") @db.VarChar(180)
+  publicAreaLabelEn    String   @default("") @map("public_area_label_en") @db.VarChar(180)
+  districtId           String?  @map("district_id") @db.Uuid
+  subdivisionId        String?  @map("subdivision_id") @db.Uuid
+  areaType             String   @default("") @map("area_type") @db.VarChar(16)
+  localBodyId          String?  @map("local_body_id") @db.Uuid
+  gpWardId             String?  @map("gp_ward_id") @db.Uuid
+  villageId            String?  @map("village_id") @db.Uuid
+  villageLocality      String   @default("") @map("village_locality")
+  pincode              String   @default("") @db.VarChar(16)
+  latitude             Float?
+  longitude            Float?
+  gpsConsent           Boolean  @default(false) @map("gps_consent")
+  experienceYears      Int      @default(1) @map("experience_years")
+  isAvailable          Boolean  @default(true) @map("is_available")
+  isApproved           Boolean  @default(false) @map("is_approved")
+  approvalStatus       String   @default("pending") @map("approval_status") @db.VarChar(20)
+  ratingAvg            Decimal  @default(5.00) @map("rating_avg") @db.Decimal(3, 2)
+  reviewsCount         Int      @default(0) @map("reviews_count")
+  completedJobs        Int      @default(0) @map("completed_jobs")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([latitude, longitude], map: "idx_provider_profiles_geo")
+  @@index([districtId, subdivisionId, localBodyId, gpWardId], map: "idx_provider_profiles_location_ids")
+  @@index([approvalStatus, isApproved, isAvailable], map: "idx_provider_profiles_active_search")
+  @@map("provider_profiles")
+}
+
+model ProviderServiceArea {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  providerUserId String   @map("provider_user_id") @db.Uuid
+  districtId     String?  @map("district_id") @db.Uuid
+  subdivisionId  String?  @map("subdivision_id") @db.Uuid
+  localBodyId    String?  @map("local_body_id") @db.Uuid
+  gpWardId       String?  @map("gp_ward_id") @db.Uuid
+  villageId      String?  @map("village_id") @db.Uuid
+  pincode        String   @default("") @db.VarChar(16)
+  areaLabelEn    String   @default("") @map("area_label_en") @db.VarChar(180)
+  areaLabelBn    String   @default("") @map("area_label_bn") @db.VarChar(180)
+  latitude       Float?
+  longitude      Float?
+  radiusKm       Int      @default(10) @map("radius_km")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  provider User @relation(fields: [providerUserId], references: [id], onDelete: Cascade)
+
+  @@index([providerUserId], map: "idx_psa_provider")
+  @@index([districtId, subdivisionId, localBodyId, gpWardId, pincode], map: "idx_psa_location")
+  @@index([latitude, longitude], map: "idx_psa_geo")
+  @@map("provider_service_areas")
+}
+
+model ProviderAvailability {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  providerUserId String   @unique @map("provider_user_id") @db.Uuid
+  isAvailable    Boolean  @default(true) @map("is_available")
+  statusNote     String   @default("") @map("status_note") @db.VarChar(120)
+  workingHours   Json     @default("{\"days\":[\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\"],\"start\":\"09:00\",\"end\":\"20:00\"}") @map("working_hours")
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  provider User @relation(fields: [providerUserId], references: [id], onDelete: Cascade)
+
+  @@map("provider_availability")
+}
+
+model FavouriteProvider {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId     String   @map("customer_id") @db.Uuid
+  providerUserId String   @map("provider_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([customerId, providerUserId])
+  @@index([customerId, createdAt(sort: Desc)], map: "idx_favourites_customer")
+  @@map("favourite_providers")
+}
+
+model Service {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categorySlug    String   @map("category_slug") @db.VarChar(60)
+  providerUserId  String?  @map("provider_user_id") @db.Uuid
+  titleBn         String   @map("title_bn") @db.VarChar(180)
+  titleEn         String   @map("title_en") @db.VarChar(180)
+  descriptionBn   String   @map("description_bn")
+  descriptionEn   String   @map("description_en")
+  providerNameBn  String   @default("কাজের মানুষ কর্মী") @map("provider_name_bn") @db.VarChar(120)
+  providerNameEn  String   @default("Kajer Manus Pro") @map("provider_name_en") @db.VarChar(120)
+  areaBn          String   @default("কলকাতা") @map("area_bn") @db.VarChar(140)
+  areaEn          String   @default("Kolkata") @map("area_en") @db.VarChar(140)
+  basePriceInr    Int      @map("base_price_inr")
+  durationMinutes Int      @default(60) @map("duration_minutes")
+  rating          Decimal  @default(4.80) @db.Decimal(3, 2)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("services")
+}
+
+model Booking {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId        String    @map("customer_id") @db.Uuid
+  providerId        String?   @map("provider_id") @db.Uuid
+  serviceId         String?   @map("service_id") @db.Uuid
+  categorySlug      String    @map("category_slug") @db.VarChar(60)
+  serviceTitleBn    String    @map("service_title_bn") @db.VarChar(180)
+  serviceTitleEn    String    @map("service_title_en") @db.VarChar(180)
+  providerNameBn    String    @default("") @map("provider_name_bn") @db.VarChar(120)
+  providerNameEn    String    @default("") @map("provider_name_en") @db.VarChar(120)
+  customerName      String    @map("customer_name") @db.VarChar(120)
+  customerPhone     String    @map("customer_phone") @db.VarChar(24)
+  serviceAddress    String    @map("service_address")
+  districtId        String?   @map("district_id") @db.Uuid
+  subdivisionId     String?   @map("subdivision_id") @db.Uuid
+  localBodyId       String?   @map("local_body_id") @db.Uuid
+  gpWardId          String?   @map("gp_ward_id") @db.Uuid
+  villageId         String?   @map("village_id") @db.Uuid
+  pincode           String    @default("") @db.VarChar(16)
+  latitude          Float?
+  longitude         Float?
+  problemPhotos     Json      @default("[]") @map("problem_photos")
+  idempotencyKey    String    @default("") @map("idempotency_key") @db.VarChar(120)
+  preferredDate     String    @map("preferred_date") @db.VarChar(40)
+  preferredTime     String    @map("preferred_time") @db.VarChar(60)
+  instructions      String    @default("")
+  amountInr         Int       @default(0) @map("amount_inr")
+  status            String    @default("pending") @db.VarChar(20)
+  paymentMethod     String    @default("cash") @map("payment_method") @db.VarChar(20)
+  paymentStatus     String    @default("unpaid") @map("payment_status") @db.VarChar(20)
+  razorpayOrderId   String    @default("") @map("razorpay_order_id") @db.VarChar(80)
+  razorpayPaymentId String    @default("") @map("razorpay_payment_id") @db.VarChar(80)
+  paidAt            DateTime? @map("paid_at") @db.Timestamptz(6)
+  languageAtBooking String    @default("bn") @map("language_at_booking") @db.VarChar(5)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([customerId, createdAt(sort: Desc)], map: "idx_bookings_customer")
+  @@index([providerId, createdAt(sort: Desc)], map: "idx_bookings_provider")
+  @@index([districtId, createdAt(sort: Desc)], map: "idx_bookings_district_created")
+  @@index([localBodyId], map: "idx_bookings_local_body")
+  @@index([categorySlug], map: "idx_bookings_category")
+  @@index([latitude, longitude], map: "idx_bookings_geo")
+  @@map("bookings")
+}
+
+model Review {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId  String   @unique @map("booking_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  providerId String?  @map("provider_id") @db.Uuid
+  rating     Int
+  comment    String   @default("")
+  isVisible  Boolean  @default(true) @map("is_visible")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("reviews")
+}
+
+model Notification {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  titleBn      String   @map("title_bn") @db.VarChar(180)
+  titleEn      String   @map("title_en") @db.VarChar(180)
+  bodyBn       String   @map("body_bn")
+  bodyEn       String   @map("body_en")
+  bookingId    String?  @map("booking_id") @db.Uuid
+  type         String   @default("system") @db.VarChar(40)
+  isRead       Boolean  @default(false) @map("is_read")
+  languageCode String   @default("bn") @map("language_code") @db.VarChar(5)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_notifications_user")
+  @@map("notifications")
+}
+
+model Payment {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId         String   @map("booking_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  gateway           String   @default("razorpay") @db.VarChar(20)
+  razorpayOrderId   String   @unique @map("razorpay_order_id") @db.VarChar(80)
+  razorpayPaymentId String   @default("") @map("razorpay_payment_id") @db.VarChar(80)
+  razorpaySignature String   @default("") @map("razorpay_signature")
+  amountPaise       Int      @map("amount_paise")
+  currency          String   @default("INR") @db.VarChar(10)
+  status            String   @default("created") @db.VarChar(20)
+  failureReason     String   @default("") @map("failure_reason")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([bookingId, createdAt(sort: Desc)], map: "idx_payments_booking")
+  @@map("payments")
+}
+
+model Complaint {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  name         String   @default("") @db.VarChar(120)
+  email        String   @default("") @db.VarChar(180)
+  bookingId    String?  @map("booking_id") @db.Uuid
+  subject      String   @db.VarChar(160)
+  message      String
+  languageCode String   @default("bn") @map("language_code") @db.VarChar(5)
+  status       String   @default("open") @db.VarChar(20)
+  adminNote    String   @default("") @map("admin_note")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("complaints")
+}
+
+model DeviceToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  fcmToken  String   @unique @map("fcm_token")
+  platform  String   @default("android") @db.VarChar(20)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("device_tokens")
+}
+
+model SiteContent {
+  key       String   @id @db.VarChar(80)
+  valueBn   String   @map("value_bn")
+  valueEn   String   @map("value_en")
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("site_content")
+}
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(80)
+  targetType  String   @map("target_type") @db.VarChar(60)
+  targetId    String   @default("") @map("target_id") @db.VarChar(120)
+  ipAddress   String   @default("") @map("ip_address") @db.VarChar(64)
+  details     Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("audit_logs")
+}

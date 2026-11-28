@@ -6,23 +6,30 @@ set -euo pipefail
 
 APP_ROOT="/var/www/kajermanus"
 
-echo "1) Installing backend dependencies..."
-cd "$APP_ROOT/backend"
-npm ci --omit=dev
+echo "1) Creating pre-deployment PostgreSQL backup (zero data loss)..."
+if [ -x "$APP_ROOT/backend/scripts/backup-db.sh" ]; then
+  bash "$APP_ROOT/backend/scripts/backup-db.sh" || echo "Warning: backup script skipped (ensure PostgreSQL/pg_dump is configured)"
+fi
 
-echo "2) Running non-destructive database migrations (CREATE IF NOT EXISTS only)..."
+echo "2) Installing backend dependencies & preparing uploads directory..."
+cd "$APP_ROOT/backend"
+mkdir -p "$APP_ROOT/backend/uploads"
+npm ci --omit=dev
+npx prisma generate
+
+echo "3) Running non-destructive database migrations & West Bengal location seed..."
 npm run migrate
 
-echo "3) Reloading PM2 backend process..."
+echo "4) Reloading PM2 backend process..."
 pm2 startOrReload "$APP_ROOT/deploy/ecosystem.config.cjs" --update-env
 pm2 save
 
-echo "4) Building bilingual React website..."
+echo "5) Building bilingual React website..."
 cd "$APP_ROOT/website"
 npm ci
 npm run build
 
-echo "5) Validating Nginx & health check..."
+echo "6) Validating Nginx & health check..."
 sudo nginx -t
 sudo systemctl reload nginx
 curl -fsS https://api.kajermanus.in/api/v1/health

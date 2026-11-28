@@ -98,6 +98,7 @@ fun HomeMarketplaceScreen(
         scheduledDate: String,
         scheduledSlot: String,
         notes: String,
+        paymentMethod: String,
         onBooked: () -> Unit
     ) -> Unit
 ) {
@@ -325,7 +326,7 @@ fun HomeMarketplaceScreen(
             userProfile = userProfile,
             isMutating = isMutating,
             onDismiss = { selectedService = null },
-            onConfirmBooking = { name, phone, address, date, slot, notes ->
+            onConfirmBooking = { name, phone, address, date, slot, notes, paymentMethod ->
                 onCreateBooking(
                     service,
                     name,
@@ -333,7 +334,8 @@ fun HomeMarketplaceScreen(
                     address,
                     date,
                     slot,
-                    notes
+                    notes,
+                    paymentMethod
                 ) {
                     selectedService = null
                 }
@@ -486,7 +488,8 @@ private fun ServiceDetailAndBookingSheet(
         address: String,
         date: String,
         slot: String,
-        notes: String
+        notes: String,
+        paymentMethod: String
     ) -> Unit
 ) {
     val config = LocalBilingualConfig.current
@@ -500,6 +503,7 @@ private fun ServiceDetailAndBookingSheet(
     var scheduledDate by rememberSaveable(service.id) { mutableStateOf(defaultDate) }
     var slotIndex by rememberSaveable(service.id) { mutableIntStateOf(0) }
     var notes by rememberSaveable(service.id) { mutableStateOf("") }
+    var paymentMethod by rememberSaveable(service.id) { mutableStateOf("cash") }
     var errorKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     val slotOptions = listOf(
@@ -624,6 +628,31 @@ private fun ServiceDetailAndBookingSheet(
                     .testTag("booking_notes_input")
             )
 
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(text = t("service.payment_method_label"), style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = paymentMethod == "cash",
+                        onClick = { paymentMethod = "cash" },
+                        label = { Text(t("service.payment_cash"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("payment_method_cash")
+                    )
+                    FilterChip(
+                        selected = paymentMethod == "razorpay",
+                        onClick = { paymentMethod = "razorpay" },
+                        label = { Text(t("service.payment_razorpay"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("payment_method_razorpay")
+                    )
+                }
+            }
+
             errorKey?.let { key ->
                 Text(
                     text = t(key),
@@ -644,7 +673,8 @@ private fun ServiceDetailAndBookingSheet(
                             serviceAddress,
                             scheduledDate,
                             slotOptions[slotIndex],
-                            notes
+                            notes,
+                            paymentMethod
                         )
                     }
                 },
@@ -663,7 +693,10 @@ private fun ServiceDetailAndBookingSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                 }
-                Text(text = t("service.confirm_booking"), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = if (paymentMethod == "razorpay") t("service.confirm_and_pay") else t("service.confirm_booking"),
+                    style = MaterialTheme.typography.labelLarge
+                )
             }
         }
     }

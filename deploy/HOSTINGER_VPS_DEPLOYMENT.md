@@ -14,7 +14,15 @@ sudo npm install -g pm2
 sudo -u postgres psql -c "CREATE USER kajermanus_user WITH PASSWORD 'STRONG_PASSWORD';"
 sudo -u postgres psql -c "CREATE DATABASE kajermanus_db OWNER kajermanus_user;"
 ```
-Run `cd /var/www/kajermanus/backend && npm run migrate` after creating `/var/www/kajermanus/backend/.env` from `.env.example`.
+Run non-destructive schema migrations and the verified West Bengal 23-district location master seeder:
+```bash
+cd /var/www/kajermanus/backend
+mkdir -p uploads
+bash scripts/backup-db.sh   # Run before any upgrade to snapshot existing production data
+npx prisma generate
+npm run migrate             # Runs 001 + 002 additive migrations + idempotent WB location seed
+```
+All migrations strictly use `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and `ON CONFLICT DO NOTHING` — existing users, providers, admins, bookings, and payments are never overwritten or deleted.
 
 ## 3. SSL Certificates (Let's Encrypt) for `www.kajermanus.in` & `api.kajermanus.in`
 Issue SSL certificates **before** enabling the `443 ssl` Nginx blocks so `nginx -t` succeeds and `api.kajermanus.in` does not fail with `TLSV1_ALERT_UNRECOGNIZED_NAME`:

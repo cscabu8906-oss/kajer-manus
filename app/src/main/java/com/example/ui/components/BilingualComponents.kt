@@ -1,5 +1,12 @@
 package com.example.ui.components
 
+import android.annotation.SuppressLint
+import android.os.Handler
+import android.os.Looper
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -9,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -27,6 +35,7 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Carpenter
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CleaningServices
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Construction
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Engineering
@@ -44,6 +53,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,15 +64,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -70,7 +83,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.BookingStatus
+import com.example.data.PaymentMethod
+import com.example.data.PaymentStatus
+import com.example.data.RazorpayOrderPayload
 import com.example.data.ServiceCategory
 import com.example.i18n.AppLanguage
 import com.example.i18n.t
@@ -84,6 +103,7 @@ import com.example.ui.theme.StatusProgressBg
 import com.example.ui.theme.StatusProgressFg
 import com.example.ui.theme.StatusRejectedBg
 import com.example.ui.theme.StatusRejectedFg
+import org.json.JSONObject
 
 @Composable
 fun LanguageTogglePill(
@@ -423,6 +443,35 @@ fun BookingStatusBadge(status: BookingStatus, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+fun BookingPaymentBadge(
+    paymentMethod: String,
+    paymentStatus: PaymentStatus,
+    modifier: Modifier = Modifier
+) {
+    val (bg, fg) = when (paymentStatus) {
+        PaymentStatus.PAID -> StatusCompletedBg to StatusCompletedFg
+        PaymentStatus.UNPAID, PaymentStatus.PENDING -> StatusPendingBg to StatusPendingFg
+        PaymentStatus.FAILED -> StatusRejectedBg to StatusRejectedFg
+        PaymentStatus.REFUNDED -> StatusProgressBg to StatusProgressFg
+    }
+    val methodLabel = t(PaymentMethod.fromKey(paymentMethod).i18nKey)
+    val statusLabel = t(paymentStatus.i18nKey)
+    Surface(
+        modifier = modifier,
+        color = bg,
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Text(
+            text = "$statusLabel • $methodLabel",
+            style = MaterialTheme.typography.labelMedium,
+            color = fg,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        )
+    }
+}
+
 fun categoryIcon(categoryKey: String): ImageVector = when (ServiceCategory.fromKey(categoryKey)) {
     ServiceCategory.ELECTRICIAN -> Icons.Rounded.Bolt
     ServiceCategory.PLUMBER -> Icons.Rounded.Plumbing
@@ -625,4 +674,178 @@ fun ContactSupportDialog(
             }
         }
     )
+}
+
+private class RazorpayBridge(
+    private val mainHandler: Handler,
+    private val onSuccess: (String, String, String) -> Unit,
+    private val onError: (String) -> Unit,
+    private val onDismiss: () -> Unit
+) {
+    @JavascriptInterface
+    fun onPaymentSuccess(orderId: String, paymentId: String, signature: String) {
+        mainHandler.post { onSuccess(orderId, paymentId, signature) }
+    }
+
+    @JavascriptInterface
+    fun onPaymentError(message: String) {
+        mainHandler.post { onError(message) }
+    }
+
+    @JavascriptInterface
+    fun onCheckoutDismissed() {
+        mainHandler.post { onDismiss() }
+    }
+}
+
+private fun buildRazorpayCheckoutHtml(order: RazorpayOrderPayload, themeColorHex: String): String {
+    val key = JSONObject.quote(order.keyId)
+    val currency = JSONObject.quote(order.currency)
+    val description = JSONObject.quote(order.serviceTitle)
+    val orderId = JSONObject.quote(order.orderId)
+    val prefillName = JSONObject.quote(order.prefillName)
+    val prefillEmail = JSONObject.quote(order.prefillEmail)
+    val prefillContact = JSONObject.quote(order.prefillContact)
+    val bookingId = JSONObject.quote(order.bookingId)
+    val color = JSONObject.quote(themeColorHex)
+    return """
+        <!doctype html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+          <style>
+            body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fffbf4; color: #1a201e; text-align: center; padding: 20px; }
+          </style>
+        </head>
+        <body>
+          <div>Opening secure checkout...</div>
+          <script>
+            (function() {
+              if (typeof Razorpay === 'undefined') {
+                KajerPayBridge.onPaymentError('Unable to load Razorpay Checkout. Check internet connection.');
+                return;
+              }
+              var options = {
+                key: $key,
+                amount: ${order.amountPaise},
+                currency: $currency,
+                name: "Kajer Manus",
+                description: $description,
+                order_id: $orderId,
+                prefill: { name: $prefillName, email: $prefillEmail, contact: $prefillContact },
+                notes: { booking_id: $bookingId },
+                theme: { color: $color },
+                modal: {
+                  ondismiss: function() { KajerPayBridge.onCheckoutDismissed(); }
+                },
+                handler: function(response) {
+                  KajerPayBridge.onPaymentSuccess(
+                    response.razorpay_order_id || $orderId,
+                    response.razorpay_payment_id || "",
+                    response.razorpay_signature || ""
+                  );
+                }
+              };
+              var rzp = new Razorpay(options);
+              rzp.on('payment.failed', function(resp) {
+                var msg = (resp && resp.error && resp.error.description) ? resp.error.description : 'Payment failed';
+                KajerPayBridge.onPaymentError(msg);
+              });
+              rzp.open();
+            })();
+          </script>
+        </body>
+        </html>
+    """.trimIndent()
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun RazorpayCheckoutDialog(
+    order: RazorpayOrderPayload,
+    onSuccess: (orderId: String, paymentId: String, signature: String) -> Unit,
+    onError: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val primaryHex = String.format("#%06X", 0xFFFFFF and MaterialTheme.colorScheme.primary.toArgb())
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    DisposableEffect(order.orderId) {
+        onDispose {
+            webViewRef?.stopLoading()
+            webViewRef?.destroy()
+            webViewRef = null
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = t("booking.razorpay_title"),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("close_razorpay_dialog")
+                    ) {
+                        Icon(Icons.Rounded.Close, contentDescription = t("common.close"))
+                    }
+                }
+                HorizontalDivider()
+                AndroidView(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    factory = { context ->
+                        WebView(context).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            webChromeClient = WebChromeClient()
+                            webViewClient = WebViewClient()
+                            addJavascriptInterface(
+                                RazorpayBridge(
+                                    mainHandler = Handler(Looper.getMainLooper()),
+                                    onSuccess = onSuccess,
+                                    onError = onError,
+                                    onDismiss = onDismiss
+                                ),
+                                "KajerPayBridge"
+                            )
+                            loadDataWithBaseURL(
+                                "https://www.kajermanus.in",
+                                buildRazorpayCheckoutHtml(order, primaryHex),
+                                "text/html",
+                                "UTF-8",
+                                null
+                            )
+                            webViewRef = this
+                        }
+                    }
+                )
+            }
+        }
+    }
 }

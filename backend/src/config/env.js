@@ -36,6 +36,21 @@ export const env = {
     projectId: process.env.FIREBASE_PROJECT_ID || '',
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
     privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n')
+  },
+  totpEncryptionKey: (process.env.TOTP_ENCRYPTION_KEY || '').trim(),
+  razorpay: {
+    keyId: (process.env.RAZORPAY_KEY_ID || '').trim(),
+    keySecret: (process.env.RAZORPAY_KEY_SECRET || '').trim(),
+    webhookSecret: (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim()
+  },
+  sms: {
+    providerUrl: (process.env.SMS_PROVIDER_URL || '').trim(),
+    apiKey: (process.env.SMS_API_KEY || '').trim(),
+    senderId: (process.env.SMS_SENDER_ID || 'KAJERM').trim()
+  },
+  uploads: {
+    dir: (process.env.UPLOAD_DIR || 'uploads').trim(),
+    maxMb: Number(process.env.MAX_UPLOAD_MB || 5)
   }
 };
 

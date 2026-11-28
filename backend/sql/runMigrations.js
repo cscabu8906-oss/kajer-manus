@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import { pool } from '../src/config/db.js';
 
+import { seedWbLocations } from '../scripts/seed-wb-locations.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function bootstrapAdminFromEnv() {
@@ -29,12 +31,17 @@ async function bootstrapAdminFromEnv() {
 }
 
 async function run() {
-  const sqlPath = path.join(__dirname, '001_initial_schema.sql');
-  const sql = fs.readFileSync(sqlPath, 'utf8');
-  console.log('Running non-destructive migration 001_initial_schema.sql...');
-  await pool.query(sql);
+  const migrations = ['001_initial_schema.sql', '002_wb_locations_and_smart_booking.sql'];
+  for (const file of migrations) {
+    const sqlPath = path.join(__dirname, file);
+    if (!fs.existsSync(sqlPath)) continue;
+    const sql = fs.readFileSync(sqlPath, 'utf8');
+    console.log(`Running non-destructive migration ${file}...`);
+    await pool.query(sql);
+  }
+  await seedWbLocations();
   await bootstrapAdminFromEnv();
-  console.log('Migration complete.');
+  console.log('All non-destructive migrations & WB location seeds complete.');
   await pool.end();
 }
 
