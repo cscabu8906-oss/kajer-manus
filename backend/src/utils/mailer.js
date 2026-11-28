@@ -9,6 +9,11 @@ function getTransporter() {
       host: env.smtp.host,
       port: env.smtp.port,
       secure: env.smtp.secure,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      tls: {
+        minVersion: 'TLSv1.2'
+      },
       auth: {
         user: env.smtp.user,
         pass: env.smtp.pass
@@ -45,8 +50,9 @@ export async function sendOtpEmail({ to, code, purpose, language = 'bn' }) {
 
   const mailer = getTransporter();
   if (!mailer) {
-    console.warn(`[SMTP_NOT_CONFIGURED] OTP email for ${to} skipped (purpose=${purpose}).`);
-    return { delivered: false };
+    const err = new Error('Hostinger SMTP email service is not configured on the server (check SMTP_HOST, SMTP_USER, SMTP_PASS in backend/.env).');
+    err.status = 503;
+    throw err;
   }
 
   await mailer.sendMail({

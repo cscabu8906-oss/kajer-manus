@@ -16,13 +16,15 @@ sudo -u postgres psql -c "CREATE DATABASE kajermanus_db OWNER kajermanus_user;"
 ```
 Run `cd /var/www/kajermanus/backend && npm run migrate` after creating `/var/www/kajermanus/backend/.env` from `.env.example`.
 
-## 3. SSL Certificates (Let's Encrypt)
+## 3. SSL Certificates (Let's Encrypt) for `www.kajermanus.in` & `api.kajermanus.in`
+Issue SSL certificates **before** enabling the `443 ssl` Nginx blocks so `nginx -t` succeeds and `api.kajermanus.in` does not fail with `TLSV1_ALERT_UNRECOGNIZED_NAME`:
 ```bash
+sudo certbot --nginx -d kajermanus.in -d www.kajermanus.in -d api.kajermanus.in
 sudo cp /var/www/kajermanus/deploy/nginx-www.kajermanus.in.conf /etc/nginx/sites-available/www.kajermanus.in
 sudo cp /var/www/kajermanus/deploy/nginx-api.kajermanus.in.conf /etc/nginx/sites-available/api.kajermanus.in
 sudo ln -sf /etc/nginx/sites-available/www.kajermanus.in /etc/nginx/sites-enabled/
 sudo ln -sf /etc/nginx/sites-available/api.kajermanus.in /etc/nginx/sites-enabled/
-sudo certbot --nginx -d kajermanus.in -d www.kajermanus.in -d api.kajermanus.in
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ## 4. GitHub Deployment & Independent Website Deploys

@@ -1,10 +1,10 @@
 import React from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { HomePage } from './pages/HomePage';
 import { BookingPage, FindWorkersPage, ServiceDetailPage, ServicesListPage, WorkerProfilePage } from './pages/MarketplacePages';
-import { ForgotPasswordPage, LoginPage, RegisterPage, VerifyOtpPage } from './pages/AuthPages';
+import { ForgotPasswordPage, LoginPage, RegisterPage } from './pages/AuthPages';
 import { CustomerDashboardPage } from './pages/CustomerDashboardPage';
 import { ProviderDashboardPage } from './pages/ProviderDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
@@ -26,7 +26,7 @@ export const App: React.FC = () => {
             <Route path="/book/:serviceId" element={<BookingPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
-            <Route path="/verify-otp" element={<VerifyOtpPage />} />
+            <Route path="/verify-otp" element={<Navigate to="/forgot-password" replace />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/dashboard" element={<CustomerDashboardPage />} />
             <Route path="/provider/dashboard" element={<ProviderDashboardPage />} />

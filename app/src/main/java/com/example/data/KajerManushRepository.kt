@@ -15,11 +15,11 @@ class KajerManushRepository(
             ?: throw IllegalStateException("Please sign in to continue.")
     }
 
-    // ---------- Authentication & OTP ----------
+    // ---------- Authentication & Forgot Password OTP ----------
 
-    suspend fun login(email: String, password: String): Result<UserProfile> = runCatchingRest {
+    suspend fun login(identifier: String, password: String): Result<UserProfile> = runCatchingRest {
         val body = JSONObject().apply {
-            put("email", email.trim())
+            put("identifier", identifier.trim())
             put("password", password)
         }
         val res = api.request("POST", "/auth/login", body = body)
@@ -38,7 +38,7 @@ class KajerManushRepository(
         accountRole: String,
         languagePreference: AppLanguage,
         bengaliNumerals: Boolean
-    ): Result<String> = runCatchingRest {
+    ): Result<UserProfile> = runCatchingRest {
         val body = JSONObject().apply {
             put("fullName", fullName.trim())
             put("email", email.trim())
@@ -50,16 +50,6 @@ class KajerManushRepository(
             put("bengaliNumerals", bengaliNumerals)
         }
         val res = api.request("POST", "/auth/register", body = body)
-        res.optString("email", email.trim())
-    }
-
-    suspend fun verifyRegistrationOtp(email: String, otp: String): Result<UserProfile> = runCatchingRest {
-        val body = JSONObject().apply {
-            put("email", email.trim())
-            put("otp", otp.trim())
-            put("purpose", "register_verify")
-        }
-        val res = api.request("POST", "/auth/verify-otp", body = body)
         val token = res.getString("token")
         val user = SessionManager.parseUserObject(res.getJSONObject("user"))
         sessionManager.saveSession(token, user)
@@ -68,7 +58,7 @@ class KajerManushRepository(
 
     suspend fun resendOtp(
         email: String,
-        purpose: String,
+        purpose: String = "password_reset",
         languagePreference: AppLanguage
     ): Result<String> = runCatchingRest {
         val body = JSONObject().apply {

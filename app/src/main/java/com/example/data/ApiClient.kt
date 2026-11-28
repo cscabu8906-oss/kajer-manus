@@ -5,11 +5,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLEncoder
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 class ApiException(
     val statusCode: Int,
@@ -90,6 +95,40 @@ class ApiClient(
             }
 
             parsed
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: SSLException) {
+            val detail = e.message.orEmpty()
+            val friendly = if (detail.contains("UNRECOGNIZED_NAME", ignoreCase = true)) {
+                "SSL certificate for ${url.host} is not active on the server yet (TLS SNI unrecognized name). Configure Nginx + Certbot SSL for ${url.host} on your Hostinger VPS."
+            } else {
+                "Secure SSL connection to ${url.host} failed. Please verify the server SSL certificate."
+            }
+            throw ApiException(statusCode = 0, message = friendly, errorCode = "SSL_ERROR")
+        } catch (_: UnknownHostException) {
+            throw ApiException(
+                statusCode = 0,
+                message = "Cannot reach ${url.host}. Check internet connection and DNS A record.",
+                errorCode = "DNS_ERROR"
+            )
+        } catch (_: ConnectException) {
+            throw ApiException(
+                statusCode = 0,
+                message = "Connection refused by ${url.host}. Ensure the backend API and Nginx are running.",
+                errorCode = "CONNECT_ERROR"
+            )
+        } catch (_: SocketTimeoutException) {
+            throw ApiException(
+                statusCode = 0,
+                message = "Server request timed out. Please try again.",
+                errorCode = "TIMEOUT_ERROR"
+            )
+        } catch (e: IOException) {
+            throw ApiException(
+                statusCode = 0,
+                message = e.localizedMessage ?: "Network error while connecting to ${url.host}.",
+                errorCode = "NETWORK_ERROR"
+            )
         } finally {
             conn.disconnect()
         }

@@ -25,9 +25,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
-import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Pin
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -66,7 +65,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
-import com.example.data.ApiException
 import com.example.data.KajerManushRepository
 import com.example.data.ServiceCategory
 import com.example.i18n.AppLanguage
@@ -88,7 +86,7 @@ fun OnboardingAuthScreen(
 ) {
     val scope = rememberCoroutineScope()
 
-    var email by rememberSaveable { mutableStateOf("") }
+    var identifier by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
 
@@ -96,16 +94,13 @@ fun OnboardingAuthScreen(
     var authError by rememberSaveable { mutableStateOf<String?>(null) }
     var infoBanner by rememberSaveable { mutableStateOf<String?>(null) }
 
-    var pendingOtpEmail by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingOtpCode by rememberSaveable { mutableStateOf("") }
     var showForgotDialog by rememberSaveable { mutableStateOf(false) }
     var showPrivacy by rememberSaveable { mutableStateOf(false) }
     var showTerms by rememberSaveable { mutableStateOf(false) }
 
-    val invalidEmailErr = t("auth.err_email_invalid")
+    val invalidIdentifierErr = t("auth.err_identifier_invalid")
     val shortPasswordErr = t("auth.err_password_short")
     val resetSuccessMsg = t("auth.reset_password_success")
-    val otpResentMsg = t("auth.otp_resent")
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing
@@ -207,11 +202,11 @@ fun OnboardingAuthScreen(
                         )
 
                         OutlinedTextField(
-                            value = email,
-                            onValueChange = { email = it; authError = null; infoBanner = null },
-                            label = { Text(t("auth.email")) },
-                            leadingIcon = { Icon(Icons.Rounded.Email, contentDescription = null) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                            value = identifier,
+                            onValueChange = { identifier = it; authError = null; infoBanner = null },
+                            label = { Text(t("auth.email_or_mobile")) },
+                            leadingIcon = { Icon(Icons.Rounded.Person, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -280,29 +275,23 @@ fun OnboardingAuthScreen(
 
                         Button(
                             onClick = {
-                                val trimmedEmail = email.trim()
+                                val trimmedIdentifier = identifier.trim()
+                                val isEmail = trimmedIdentifier.contains("@") && trimmedIdentifier.contains(".")
+                                val digitsCount = trimmedIdentifier.count { it.isDigit() }
+                                val isMobile = !trimmedIdentifier.contains("@") && digitsCount >= 10
                                 when {
-                                    !trimmedEmail.contains("@") || !trimmedEmail.contains(".") -> authError = invalidEmailErr
+                                    !isEmail && !isMobile -> authError = invalidIdentifierErr
                                     password.isEmpty() -> authError = shortPasswordErr
                                     else -> {
                                         authError = null
                                         isLoading = true
                                         scope.launch {
-                                            val result = repository.login(trimmedEmail, password)
+                                            val result = repository.login(trimmedIdentifier, password)
                                             isLoading = false
                                             result.onSuccess {
                                                 onAuthSuccess()
                                             }.onFailure { err ->
-                                                if (err is ApiException && err.errorCode == "OTP_REQUIRED") {
-                                                    pendingOtpEmail = err.emailHint.ifBlank { trimmedEmail }
-                                                    repository.resendOtp(
-                                                        pendingOtpEmail!!,
-                                                        "register_verify",
-                                                        currentLanguage
-                                                    )
-                                                } else {
-                                                    authError = err.localizedMessage ?: "Sign in failed"
-                                                }
+                                                authError = err.localizedMessage ?: "Sign in failed"
                                             }
                                         }
                                     }
@@ -414,81 +403,14 @@ fun OnboardingAuthScreen(
         }
     }
 
-    pendingOtpEmail?.let { targetEmail ->
-        var otpErr by rememberSaveable { mutableStateOf<String?>(null) }
-        var otpBusy by rememberSaveable { mutableStateOf(false) }
-        val invalidOtpErr = t("auth.err_otp_invalid")
-
-        AlertDialog(
-            onDismissRequest = { pendingOtpEmail = null },
-            title = { Text(t("auth.otp_title")) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("${t("auth.otp_subtitle")} $targetEmail", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(
-                        value = pendingOtpCode,
-                        onValueChange = { pendingOtpCode = it.filter(Char::isDigit).take(6); otpErr = null },
-                        label = { Text(t("auth.otp_code")) },
-                        leadingIcon = { Icon(Icons.Rounded.Pin, contentDescription = null) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    otpErr?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                repository.resendOtp(targetEmail, "register_verify", currentLanguage)
-                                infoBanner = otpResentMsg
-                            }
-                        }
-                    ) {
-                        Text(t("auth.resend_otp_btn"))
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    enabled = !otpBusy,
-                    onClick = {
-                        if (pendingOtpCode.length != 6) {
-                            otpErr = invalidOtpErr
-                        } else {
-                            otpBusy = true
-                            scope.launch {
-                                val res = repository.verifyRegistrationOtp(targetEmail, pendingOtpCode)
-                                otpBusy = false
-                                res.onSuccess {
-                                    pendingOtpEmail = null
-                                    onAuthSuccess()
-                                }.onFailure { err ->
-                                    otpErr = err.localizedMessage ?: invalidOtpErr
-                                }
-                            }
-                        }
-                    }
-                ) {
-                    Text(t("auth.verify_otp_btn"))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingOtpEmail = null }) {
-                    Text(t("common.cancel"))
-                }
-            }
-        )
-    }
-
     if (showForgotDialog) {
         ForgotPasswordDialog(
             repository = repository,
             currentLanguage = currentLanguage,
-            initialEmail = email,
+            initialEmail = if (identifier.contains("@")) identifier.trim() else "",
             onDismiss = { showForgotDialog = false },
             onPasswordReset = { resetEmail ->
-                email = resetEmail
+                identifier = resetEmail
                 showForgotDialog = false
                 infoBanner = resetSuccessMsg
             }
@@ -526,10 +448,12 @@ private fun ForgotPasswordDialog(
     var newPassword by rememberSaveable { mutableStateOf("") }
     var busy by rememberSaveable { mutableStateOf(false) }
     var errorMsg by rememberSaveable { mutableStateOf<String?>(null) }
+    var infoMsg by rememberSaveable { mutableStateOf<String?>(null) }
 
     val invalidEmailErr = t("auth.err_email_invalid")
     val invalidOtpErr = t("auth.err_otp_invalid")
     val shortPasswordErr = t("auth.err_password_short")
+    val otpResentMsg = t("auth.otp_resent")
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -537,7 +461,10 @@ private fun ForgotPasswordDialog(
             Text(if (step == 1) t("auth.forgot_password") else t("auth.reset_password_title"))
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 if (step == 1) {
                     Text(t("auth.forgot_password_desc"), style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(
@@ -566,6 +493,24 @@ private fun ForgotPasswordDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    TextButton(
+                        enabled = !busy,
+                        onClick = {
+                            busy = true
+                            errorMsg = null
+                            scope.launch {
+                                val res = repository.resendOtp(targetEmail.trim(), "password_reset", currentLanguage)
+                                busy = false
+                                res.onSuccess { infoMsg = otpResentMsg }
+                                    .onFailure { errorMsg = it.localizedMessage }
+                            }
+                        }
+                    ) {
+                        Text(t("auth.resend_otp_btn"))
+                    }
+                }
+                infoMsg?.let {
+                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 }
                 errorMsg?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -605,6 +550,14 @@ private fun ForgotPasswordDialog(
                     }
                 }
             ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Text(if (step == 1) t("auth.send_reset_otp") else t("auth.reset_password_btn"))
             }
         },

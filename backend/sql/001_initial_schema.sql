@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_users_mobile ON users (mobile_number);
 
 CREATE TABLE IF NOT EXISTS user_addresses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

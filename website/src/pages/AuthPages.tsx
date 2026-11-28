@@ -9,7 +9,7 @@ export const LoginPage: React.FC = () => {
   const { t } = useTranslation();
   const { loginWithToken } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,17 +21,12 @@ export const LoginPage: React.FC = () => {
     try {
       const res = await apiRequest<{ token: string; user: User }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ identifier: identifier.trim(), password })
       });
       await loginWithToken(res.token, res.user);
       navigate(res.user.role === 'admin' ? '/admin' : res.user.role === 'provider' ? '/provider/dashboard' : '/dashboard');
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.toLowerCase().includes('otp')) {
-        navigate(`/verify-otp?email=${encodeURIComponent(email)}`);
-      } else {
-        setError(msg);
-      }
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -43,11 +38,13 @@ export const LoginPage: React.FC = () => {
         <h1 className="text-2xl font-extrabold text-slate-900">{t('auth.login_title')}</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.email')}</label>
+            <label className="block text-sm font-semibold mb-1">{t('auth.email_or_mobile')}</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              autoComplete="username"
+              placeholder={t('auth.identifier_placeholder')}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               required
               className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
             />
@@ -56,6 +53,7 @@ export const LoginPage: React.FC = () => {
             <label className="block text-sm font-semibold mb-1">{t('auth.password')}</label>
             <input
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -88,7 +86,7 @@ export const LoginPage: React.FC = () => {
 
 export const RegisterPage: React.FC = () => {
   const { t } = useTranslation();
-  const { language } = useAuth();
+  const { language, loginWithToken } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -113,20 +111,21 @@ export const RegisterPage: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      await apiRequest('/auth/register', {
+      const res = await apiRequest<{ token: string; user: User }>('/auth/register', {
         method: 'POST',
         body: JSON.stringify({
-          fullName,
-          email,
-          mobileNumber,
-          fullAddress,
+          fullName: fullName.trim(),
+          email: email.trim(),
+          mobileNumber: mobileNumber.trim(),
+          fullAddress: fullAddress.trim(),
           password,
           accountRole,
           languagePreference: language,
           bengaliNumerals: true
         })
       });
-      navigate(`/verify-otp?email=${encodeURIComponent(email)}`);
+      await loginWithToken(res.token, res.user);
+      navigate(res.user.role === 'provider' ? '/provider/dashboard' : '/dashboard');
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -145,12 +144,12 @@ export const RegisterPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold mb-1">{t('auth.email')}</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-            </div>
-            <div>
               <label className="block text-sm font-semibold mb-1">{t('auth.mobile')}</label>
               <input type="tel" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-1">{t('auth.email')}</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
             </div>
           </div>
           <div>
@@ -205,76 +204,6 @@ export const RegisterPage: React.FC = () => {
   );
 };
 
-export const VerifyOtpPage: React.FC = () => {
-  const { t } = useTranslation();
-  const { language, loginWithToken } = useAuth();
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const [email, setEmail] = useState(searchParams.get('email') || '');
-  const [otp, setOtp] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const res = await apiRequest<{ token: string; user: User }>('/auth/verify-otp', {
-        method: 'POST',
-        body: JSON.stringify({ email, otp, purpose: 'register_verify' })
-      });
-      await loginWithToken(res.token, res.user);
-      navigate(res.user.role === 'provider' ? '/provider/dashboard' : '/dashboard');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    setError('');
-    setMessage('');
-    try {
-      const res = await apiRequest<{ message: string }>('/auth/resend-otp', {
-        method: 'POST',
-        body: JSON.stringify({ email, purpose: 'register_verify', languagePreference: language })
-      });
-      setMessage(res.message);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  return (
-    <div className="max-w-md mx-auto px-4 py-12">
-      <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-5">
-        <h1 className="text-2xl font-extrabold text-slate-900">{t('auth.otp_title')}</h1>
-        <form onSubmit={handleVerify} className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.email')}</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.otp_code')}</label>
-            <input type="text" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-center tracking-widest text-xl font-bold" />
-          </div>
-          {error && <div className="p-3 rounded-xl bg-red-50 text-red-700 text-sm">{error}</div>}
-          {message && <div className="p-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm">{message}</div>}
-          <button type="submit" disabled={loading} className="w-full py-3 rounded-xl bg-brand-green text-white font-bold">
-            {t('auth.verify_otp')}
-          </button>
-          <button type="button" onClick={handleResend} className="w-full py-2 text-sm text-brand-blue font-semibold">
-            {t('auth.resend_otp')}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-};
-
 export const ForgotPasswordPage: React.FC = () => {
   const { t } = useTranslation();
   const { language } = useAuth();
@@ -285,33 +214,56 @@ export const ForgotPasswordPage: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
     try {
       const res = await apiRequest<{ message: string }>('/auth/forgot-password', {
         method: 'POST',
-        body: JSON.stringify({ email, languagePreference: language })
+        body: JSON.stringify({ email: email.trim(), languagePreference: language })
       });
       setMsg(res.message);
       setStep('reset');
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await apiRequest<{ message: string }>('/auth/resend-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim(), purpose: 'password_reset', languagePreference: language })
+      });
+      setMsg(res.message);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
     try {
       await apiRequest('/auth/reset-password', {
         method: 'POST',
-        body: JSON.stringify({ email, otp, newPassword })
+        body: JSON.stringify({ email: email.trim(), otp: otp.trim(), newPassword })
       });
       navigate('/login');
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -319,19 +271,27 @@ export const ForgotPasswordPage: React.FC = () => {
     <div className="max-w-md mx-auto px-4 py-12">
       <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-5">
         <h1 className="text-2xl font-extrabold text-slate-900">{t('auth.forgot_title')}</h1>
+        <p className="text-xs text-slate-500">{t('auth.otp_forgot_only_note')}</p>
         {step === 'request' ? (
           <form onSubmit={handleSendOtp} className="space-y-4">
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('auth.email')} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
             {error && <div className="p-3 rounded-xl bg-red-50 text-red-700 text-sm">{error}</div>}
-            <button type="submit" className="w-full py-3 rounded-xl bg-brand-blue text-white font-bold">{t('auth.send_otp')}</button>
+            <button type="submit" disabled={loading} className="w-full py-3 rounded-xl bg-brand-blue text-white font-bold">
+              {loading ? t('home.loading') : t('auth.send_otp')}
+            </button>
           </form>
         ) : (
           <form onSubmit={handleReset} className="space-y-4">
             {msg && <div className="p-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm">{msg}</div>}
-            <input type="text" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value)} placeholder={t('auth.otp_code')} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
+            <input type="text" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder={t('auth.otp_code')} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-center tracking-widest font-bold" />
             <input type="password" minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t('auth.new_password')} required className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm" />
             {error && <div className="p-3 rounded-xl bg-red-50 text-red-700 text-sm">{error}</div>}
-            <button type="submit" className="w-full py-3 rounded-xl bg-brand-green text-white font-bold">{t('auth.reset_password')}</button>
+            <button type="submit" disabled={loading} className="w-full py-3 rounded-xl bg-brand-green text-white font-bold">
+              {loading ? t('home.loading') : t('auth.reset_password')}
+            </button>
+            <button type="button" disabled={loading} onClick={handleResendOtp} className="w-full py-2 text-sm text-brand-blue font-semibold">
+              {t('auth.resend_otp')}
+            </button>
           </form>
         )}
       </div>
