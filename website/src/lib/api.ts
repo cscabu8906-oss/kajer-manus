@@ -34,7 +34,11 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   return payload as T;
 }
 
-export const formatInr = (amount: number, lang: 'bn' | 'en') =>
+export const toLocaleDigits = (value: number | string, lang: 'bn' | 'en') =>
   lang === 'bn'
-    ? `₹${amount.toLocaleString('en-IN').replace(/\d/g, (d) => '০১২৩৪৫৬৭৮৯'[Number(d)])}`
-    : `₹${amount.toLocaleString('en-IN')}`;
+    ? String(value).replace(/\d/g, (d) => '০১২৩৪৫৬৭৮৯'[Number(d)])
+    : String(value);
+
+export const formatInr = (amount: number, lang: 'bn' | 'en') =>
+  `₹${toLocaleDigits(amount.toLocaleString('en-IN'), lang)}`;
+
