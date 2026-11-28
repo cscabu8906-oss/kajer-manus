@@ -85,7 +85,12 @@
     "reset_password_title": "নতুন পাসওয়ার্ড সেট করুন",
     "new_password": "নতুন পাসওয়ার্ড",
     "reset_password_btn": "পাসওয়ার্ড পরিবর্তন করুন",
-    "reset_password_success": "পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে। এখন লগইন করুন।"
+    "reset_password_success": "পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে। এখন লগইন করুন।",
+    "or_divider": "অথবা",
+    "trust_verified": "যাচাইকৃত কর্মী",
+    "trust_sync": "ওয়েব ও অ্যাপ সিঙ্ক",
+    "show_password": "পাসওয়ার্ড দেখুন",
+    "hide_password": "পাসওয়ার্ড লুকান"
   },
   "home": {
     "greeting": "নমস্কার",

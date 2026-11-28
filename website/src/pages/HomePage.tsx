@@ -119,8 +119,8 @@ export const HomePage: React.FC = () => {
 
       {/* Hero Section */}
       <section className="km-gradient-hero text-white py-14 md:py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-          <div className="lg:col-span-7 space-y-6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          <div className="lg:col-span-6 space-y-6">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/15 backdrop-blur text-sm font-semibold text-emerald-200">
               <ShieldCheck className="w-4 h-4 text-brand-orange" />
               <span>{t('home.hero_badge')}</span>
@@ -179,32 +179,26 @@ export const HomePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="lg:col-span-5 flex justify-center">
-            <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
-              <div className="flex items-center gap-4">
-                <img
-                  src="/logo.jpg"
-                  alt={t('brand.name')}
-                  className="w-16 h-16 rounded-2xl object-cover shadow-lg ring-2 ring-white/40"
-                />
-                <div>
-                  <div className="text-xl font-extrabold">{t('brand.name')}</div>
-                  <div className="text-sm text-emerald-200">{t('brand.tagline')}</div>
-                </div>
+          <div className="lg:col-span-6 space-y-4">
+            <div className="rounded-3xl overflow-hidden shadow-2xl ring-2 ring-white/25 bg-white">
+              <img
+                src="/banner.png"
+                alt={heroHeadline}
+                className="w-full aspect-video object-cover block"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-white/10 backdrop-blur rounded-xl px-4 py-3 flex items-center justify-between">
+                <span className="text-blue-100 text-xs">{t('home.categories_title')}</span>
+                <span className="font-bold text-xl text-brand-orange">
+                  {toLocaleDigits(`${displayCategorySlugs.length}+`, language)}
+                </span>
               </div>
-              <div className="grid grid-cols-2 gap-3 pt-2 text-sm">
-                <div className="bg-white/10 rounded-xl p-3">
-                  <div className="font-bold text-2xl text-brand-orange">
-                    {toLocaleDigits(`${displayCategorySlugs.length}+`, language)}
-                  </div>
-                  <div className="text-blue-100 text-xs">{t('home.categories_title')}</div>
-                </div>
-                <div className="bg-white/10 rounded-xl p-3">
-                  <div className="font-bold text-2xl text-emerald-300">
-                    {toLocaleDigits('100%', language)}
-                  </div>
-                  <div className="text-blue-100 text-xs">{t('home.hero_badge')}</div>
-                </div>
+              <div className="bg-white/10 backdrop-blur rounded-xl px-4 py-3 flex items-center justify-between">
+                <span className="text-blue-100 text-xs">{t('home.hero_badge')}</span>
+                <span className="font-bold text-xl text-emerald-300">
+                  {toLocaleDigits('100%', language)}
+                </span>
               </div>
             </div>
           </div>

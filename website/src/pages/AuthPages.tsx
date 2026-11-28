@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Lock,
+  LogIn,
+  Mail,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+  UserPlus
+} from 'lucide-react';
 import { apiRequest } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import type { User } from '../types';
@@ -11,6 +23,7 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -33,51 +46,171 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto px-4 py-12">
-      <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-6">
-        <h1 className="text-2xl font-extrabold text-slate-900">{t('auth.login_title')}</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.email_or_mobile')}</label>
-            <input
-              type="text"
-              autoComplete="username"
-              placeholder={t('auth.identifier_placeholder')}
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              required
-              className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
-            />
+    <div className="relative overflow-hidden bg-gradient-to-br from-slate-50 via-blue-50/45 to-emerald-50/40">
+      <div className="pointer-events-none absolute -top-28 -left-24 h-80 w-80 rounded-full bg-brand-blue/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-28 -right-24 h-80 w-80 rounded-full bg-brand-green/10 blur-3xl" />
+
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+          {/* Left Showcase Column */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/90 border border-blue-100 shadow-sm text-xs font-bold text-brand-blue">
+              <ShieldCheck className="w-4 h-4 text-brand-green shrink-0" />
+              <span>{t('auth.login_badge')}</span>
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                {t('auth.login_hero_title')}
+              </h2>
+              <p className="text-sm sm:text-base text-slate-600 max-w-xl leading-relaxed">
+                {t('auth.login_hero_subtitle')}
+              </p>
+            </div>
+
+            <div className="rounded-3xl overflow-hidden shadow-2xl shadow-blue-950/15 ring-1 ring-slate-200/90 bg-white p-1.5">
+              <img
+                src="/login-banner.png"
+                alt={t('auth.login_title')}
+                className="w-full aspect-video object-cover rounded-[20px] block"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-2xl bg-white/85 backdrop-blur border border-slate-200/80 px-4 py-3 flex items-center gap-2.5 shadow-sm">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-brand-green flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-bold text-slate-800">{t('auth.trust_verified')}</span>
+              </div>
+              <div className="rounded-2xl bg-white/85 backdrop-blur border border-slate-200/80 px-4 py-3 flex items-center gap-2.5 shadow-sm">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-brand-blue flex items-center justify-center shrink-0">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-bold text-slate-800">{t('auth.trust_sync')}</span>
+              </div>
+              <div className="rounded-2xl bg-white/85 backdrop-blur border border-slate-200/80 px-4 py-3 flex items-center gap-2.5 shadow-sm">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-brand-orange flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <span className="text-xs font-bold text-slate-800">{t('auth.trust_fast')}</span>
+              </div>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-semibold mb-1">{t('auth.password')}</label>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm"
-            />
+
+          {/* Right Elevated Auth Card */}
+          <div className="lg:col-span-5">
+            <div className="bg-white/95 backdrop-blur-xl rounded-[28px] border border-slate-200/90 shadow-2xl shadow-slate-900/10 overflow-hidden">
+              <div className="h-1.5 w-full bg-gradient-to-r from-brand-blue via-brand-green to-brand-orange" />
+              <div className="p-7 sm:p-9 space-y-6">
+                <div className="flex items-center gap-3.5">
+                  <img
+                    src="/logo.png"
+                    alt={t('brand.name')}
+                    className="w-12 h-12 rounded-2xl object-contain bg-white border border-slate-100 shadow-sm p-1 shrink-0"
+                  />
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
+                      {t('auth.login_title')}
+                    </h1>
+                    <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                      {t('auth.login_card_subtitle')}
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                      {t('auth.email_or_mobile')}
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        autoComplete="username"
+                        placeholder={t('auth.identifier_placeholder')}
+                        value={identifier}
+                        onChange={(e) => setIdentifier(e.target.value)}
+                        required
+                        className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl pl-10 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-sm font-semibold text-slate-700">
+                        {t('auth.password')}
+                      </label>
+                      <Link
+                        to="/forgot-password"
+                        className="text-xs font-bold text-brand-blue hover:text-blue-800 hover:underline"
+                      >
+                        {t('auth.forgot_link')}
+                      </Link>
+                    </div>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        className="w-full border border-slate-200 bg-slate-50/70 focus:bg-white rounded-2xl pl-10 pr-11 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-brand-blue/15 focus:border-brand-blue transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? t('auth.hide_password') : t('auth.show_password')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-brand-blue to-brand-green hover:from-blue-700 hover:to-emerald-800 text-white font-bold text-sm sm:text-base shadow-lg shadow-blue-900/20 inline-flex items-center justify-center gap-2 transition disabled:opacity-60"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>{loading ? t('home.loading') : t('auth.submit_login')}</span>
+                  </button>
+                </form>
+
+                <div className="relative flex items-center py-1">
+                  <div className="flex-grow border-t border-slate-200" />
+                  <span className="shrink mx-3 text-xs font-bold text-slate-400 tracking-wider">
+                    {t('auth.or_divider')}
+                  </span>
+                  <div className="flex-grow border-t border-slate-200" />
+                </div>
+
+                <Link
+                  to="/register"
+                  className="w-full py-3 px-4 rounded-2xl border-2 border-emerald-600/25 bg-emerald-50/60 hover:bg-emerald-50 hover:border-brand-green text-brand-green font-bold text-sm inline-flex items-center justify-center gap-2 transition"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>{t('auth.no_account')}</span>
+                </Link>
+
+                <div className="bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5 flex items-start gap-2 text-xs text-slate-500">
+                  <ShieldCheck className="w-4 h-4 text-brand-green shrink-0 mt-0.5" />
+                  <span>{t('auth.otp_forgot_only_note')}</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <Link to="/forgot-password" className="text-xs font-semibold text-brand-blue hover:underline">
-              {t('auth.forgot_link')}
-            </Link>
-          </div>
-          {error && <div className="p-3 rounded-xl bg-red-50 text-red-700 text-sm">{error}</div>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-xl bg-brand-blue hover:bg-blue-800 text-white font-bold transition"
-          >
-            {loading ? t('home.loading') : t('auth.submit_login')}
-          </button>
-        </form>
-        <div className="text-center text-sm">
-          <Link to="/register" className="text-brand-green font-bold hover:underline">
-            {t('auth.no_account')}
-          </Link>
         </div>
       </div>
     </div>

@@ -9,7 +9,6 @@ import {
   FileText,
   FolderKanban,
   LayoutDashboard,
-  Lock,
   LogOut,
   MessageSquareWarning,
   RefreshCw,
@@ -217,9 +216,7 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-brand-blue text-white flex items-center justify-center shadow">
-              <Lock className="w-6 h-6" />
-            </div>
+            <img src="/logo.png" alt={t('brand.name')} className="w-12 h-12 rounded-2xl object-contain bg-white border border-slate-200 shadow-sm" />
             <div>
               <h1 className="text-xl font-extrabold text-slate-900">{t('admin.login_title')}</h1>
               <p className="text-xs text-slate-500">{t('admin.login_subtitle')}</p>
@@ -529,7 +526,7 @@ export const AdminDashboardPage: React.FC = () => {
       <aside className="bg-slate-900 text-slate-200 lg:w-64 shrink-0 flex flex-col justify-between p-4">
         <div className="space-y-6">
           <div className="flex items-center gap-3 px-2 pt-1">
-            <img src="/logo.jpg" alt={t('brand.name')} className="w-10 h-10 rounded-xl object-cover ring-2 ring-emerald-400/40" />
+            <img src="/logo.png" alt={t('brand.name')} className="w-10 h-10 rounded-xl object-contain bg-white ring-2 ring-emerald-400/40" />
             <div>
               <div className="font-extrabold text-white leading-tight">{t('brand.name')}</div>
               <div className="text-[11px] text-emerald-300 font-semibold flex items-center gap-1">

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -59,8 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -177,20 +176,35 @@ fun HomeMarketplaceScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = if (userName.isNotBlank()) "${t("home.greeting")}, $userName" else t("home.greeting"),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.img_brand_logo),
+                                        contentDescription = t("app.name"),
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(10.dp)),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                    Text(
+                                        text = if (userName.isNotBlank()) "${t("home.greeting")}, $userName" else t("home.greeting"),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                                 IconButton(onClick = onRefresh) {
                                     Icon(Icons.Rounded.Refresh, contentDescription = t("home.refresh"))
                                 }
                             }
-                            Box(
+                            Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(175.dp)
-                                    .clip(RoundedCornerShape(22.dp))
+                                    .aspectRatio(16f / 9f),
+                                shape = RoundedCornerShape(22.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
                             ) {
                                 Image(
                                     painter = painterResource(id = R.drawable.img_hero_banner),
@@ -198,44 +212,6 @@ fun HomeMarketplaceScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.horizontalGradient(
-                                                colors = listOf(
-                                                    Color(0xD90A3B31),
-                                                    Color(0x990A3B31),
-                                                    Color.Transparent
-                                                )
-                                            )
-                                        )
-                                        .padding(18.dp),
-                                    contentAlignment = Alignment.BottomStart
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(0.75f),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = t("home.hero_title"),
-                                            style = MaterialTheme.typography.titleLarge,
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text(
-                                                text = t("home.hero_cta"),
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = Color.White,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                            )
-                                        }
-                                    }
-                                }
                             }
                         }
                     }

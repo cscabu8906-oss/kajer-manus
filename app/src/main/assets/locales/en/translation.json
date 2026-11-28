@@ -85,7 +85,12 @@
     "reset_password_title": "Reset Your Password",
     "new_password": "New Password",
     "reset_password_btn": "Reset Password",
-    "reset_password_success": "Password reset successful. You can now sign in."
+    "reset_password_success": "Password reset successful. You can now sign in.",
+    "or_divider": "OR",
+    "trust_verified": "Verified Pros",
+    "trust_sync": "Web & App Sync",
+    "show_password": "Show password",
+    "hide_password": "Hide password"
   },
   "home": {
     "greeting": "Hello",

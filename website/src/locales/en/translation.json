@@ -129,7 +129,17 @@
     "otp_forgot_only_note": "Email OTP is used only when resetting a forgotten password.",
     "no_account": "New here? Create an account",
     "have_account": "Already have an account? Sign In",
-    "password_mismatch": "Password and Confirm Password do not match."
+    "password_mismatch": "Password and Confirm Password do not match.",
+    "login_badge": "Unified Web & Android Account",
+    "login_hero_title": "Welcome Back to Kajer Manus",
+    "login_hero_subtitle": "Book trusted professionals across 12 categories or manage your service jobs seamlessly from any device.",
+    "login_card_subtitle": "Sign in using your Email ID or Mobile Number",
+    "trust_verified": "Admin-Verified Pros",
+    "trust_sync": "Web & App Synced",
+    "trust_fast": "Instant Booking",
+    "or_divider": "OR",
+    "show_password": "Show password",
+    "hide_password": "Hide password"
   },
   "booking": {
     "title": "Book Service",

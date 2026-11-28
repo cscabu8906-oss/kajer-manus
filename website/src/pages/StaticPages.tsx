@@ -105,7 +105,7 @@ export const DownloadAppPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12">
       <div className="bg-brand-green text-white rounded-3xl p-8 md:p-12 flex flex-col md:flex-row items-center gap-8">
-        <img src="/logo.jpg" alt={t('brand.name')} className="w-28 h-28 rounded-3xl object-cover shadow-xl ring-4 ring-white/25" />
+        <img src="/logo.png" alt={t('brand.name')} className="w-28 h-28 rounded-3xl object-contain bg-white p-1 shadow-xl ring-4 ring-white/25" />
         <div className="space-y-4">
           <h1 className="text-3xl font-extrabold">{t('home.app_banner_title')}</h1>
           <p className="text-emerald-100">{t('home.app_banner_desc')}</p>

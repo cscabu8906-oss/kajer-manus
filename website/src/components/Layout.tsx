@@ -20,9 +20,9 @@ export const Layout: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-3 shrink-0">
             <img
-              src="/logo.jpg"
+              src="/logo.png"
               alt={t('brand.name')}
-              className="w-10 h-10 rounded-xl object-cover ring-2 ring-brand-green/20"
+              className="w-10 h-10 rounded-xl object-contain bg-white ring-1 ring-slate-200"
             />
             <div>
               <div className="text-lg font-extrabold text-brand-green leading-tight">{t('brand.name')}</div>
@@ -205,7 +205,7 @@ export const Layout: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <img src="/logo.jpg" alt={t('brand.name')} className="w-10 h-10 rounded-xl object-cover" />
+              <img src="/logo.png" alt={t('brand.name')} className="w-10 h-10 rounded-xl object-contain bg-white" />
               <div>
                 <div className="font-bold text-white text-lg">{t('brand.name')}</div>
                 <div className="text-xs text-emerald-400">{t('brand.tagline')}</div>
