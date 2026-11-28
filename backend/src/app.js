@@ -57,7 +57,7 @@ export function createApp() {
       console.error('Unhandled server error:', err);
     }
     res.status(status).json({
-      error: status >= 500 ? 'Internal server error' : err.message
+      error: status >= 500 && !err.expose ? 'Internal server error' : err.message
     });
   });
 

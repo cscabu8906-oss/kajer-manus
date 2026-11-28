@@ -16,14 +16,21 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   cookieDomain: process.env.COOKIE_DOMAIN || undefined,
   smtp: {
-    host: process.env.SMTP_HOST || '',
+    host: (process.env.SMTP_HOST || '').trim(),
     port: Number(process.env.SMTP_PORT || 465),
-    secure: process.env.SMTP_SECURE
-      ? process.env.SMTP_SECURE === 'true'
-      : Number(process.env.SMTP_PORT || 465) === 465,
-    user: process.env.SMTP_USER || '',
+    secure:
+      Number(process.env.SMTP_PORT || 465) === 465
+        ? true
+        : Number(process.env.SMTP_PORT || 465) === 587
+        ? false
+        : process.env.SMTP_SECURE === 'true',
+    user: (process.env.SMTP_USER || '').trim(),
     pass: process.env.SMTP_PASS || '',
-    from: process.env.SMTP_FROM || 'Kajer Manus <noreply@kajermanus.in>'
+    from:
+      (process.env.SMTP_FROM || '').trim() ||
+      ((process.env.SMTP_USER || '').trim()
+        ? `Kajer Manus <${process.env.SMTP_USER.trim()}>`
+        : 'Kajer Manus <noreply@kajermanus.in>')
   },
   firebase: {
     projectId: process.env.FIREBASE_PROJECT_ID || '',

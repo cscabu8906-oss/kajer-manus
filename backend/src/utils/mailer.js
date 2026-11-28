@@ -4,7 +4,9 @@ import { env } from '../config/env.js';
 let transporter = null;
 
 function getTransporter() {
-  if (!transporter && env.smtp.host && env.smtp.user && env.smtp.pass) {
+  const pass = env.smtp.pass;
+  const hasRealPass = Boolean(pass && !pass.includes('CHANGE_ME'));
+  if (!transporter && env.smtp.host && env.smtp.user && hasRealPass) {
     transporter = nodemailer.createTransport({
       host: env.smtp.host,
       port: env.smtp.port,
@@ -16,7 +18,7 @@ function getTransporter() {
       },
       auth: {
         user: env.smtp.user,
-        pass: env.smtp.pass
+        pass
       }
     });
   }
@@ -50,16 +52,38 @@ export async function sendOtpEmail({ to, code, purpose, language = 'bn' }) {
 
   const mailer = getTransporter();
   if (!mailer) {
-    const err = new Error('Hostinger SMTP email service is not configured on the server (check SMTP_HOST, SMTP_USER, SMTP_PASS in backend/.env).');
+    const err = new Error('Hostinger SMTP email service is not configured in backend/.env (set SMTP_HOST, SMTP_USER, and SMTP_PASS).');
     err.status = 503;
+    err.expose = true;
     throw err;
   }
 
-  await mailer.sendMail({
-    from: env.smtp.from,
-    to,
-    subject,
-    html
-  });
-  return { delivered: true };
+  try {
+    await mailer.sendMail({
+      from: env.smtp.from,
+      to,
+      subject,
+      html
+    });
+    return { delivered: true };
+  } catch (smtpErr) {
+    console.error('SMTP sendMail error:', {
+      code: smtpErr?.code,
+      responseCode: smtpErr?.responseCode,
+      command: smtpErr?.command,
+      message: smtpErr?.message
+    });
+    let safeMessage = `Failed to send OTP email via ${env.smtp.host}:${env.smtp.port} (${smtpErr?.code || smtpErr?.responseCode || 'SMTP_ERROR'}).`;
+    if (smtpErr?.code === 'EAUTH' || smtpErr?.responseCode === 535) {
+      safeMessage = 'Hostinger SMTP authentication failed (535). Verify SMTP_USER and SMTP_PASS in backend/.env.';
+    } else if (smtpErr?.responseCode === 553 || smtpErr?.responseCode === 550 || smtpErr?.code === 'EENVELOPE') {
+      safeMessage = 'Hostinger SMTP rejected sender address. Ensure SMTP_FROM matches SMTP_USER in backend/.env.';
+    } else if (['ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'ESOCKET'].includes(smtpErr?.code)) {
+      safeMessage = `Cannot reach Hostinger SMTP server (${env.smtp.host}:${env.smtp.port}). Check firewall or try port 587/465.`;
+    }
+    const err = new Error(safeMessage);
+    err.status = 502;
+    err.expose = true;
+    throw err;
+  }
 }
