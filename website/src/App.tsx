@@ -35,8 +35,9 @@ export const App: React.FC = () => {
             <Route path="/terms" element={<PolicyPage type="terms" />} />
             <Route path="/cancellation-policy" element={<PolicyPage type="cancellation" />} />
             <Route path="/download-app" element={<DownloadAppPage />} />
-            <Route path="/admin" element={<AdminDashboardPage />} />
           </Route>
+          <Route path="/admin" element={<AdminDashboardPage />} />
+          <Route path="/admin/login" element={<AdminDashboardPage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -11,12 +11,14 @@ router.use(requireAuth, requireRole('admin'));
 
 router.get('/stats', async (_req, res, next) => {
   try {
-    const [users, providersPending, bookings, pendingBookings, categories, openComplaints] = await Promise.all([
+    const [users, providersPending, bookings, pendingBookings, categories, services, reviews, openComplaints] = await Promise.all([
       query('SELECT COUNT(*)::int AS count FROM users'),
       query("SELECT COUNT(*)::int AS count FROM provider_profiles WHERE approval_status = 'pending'"),
       query('SELECT COUNT(*)::int AS count FROM bookings'),
       query("SELECT COUNT(*)::int AS count FROM bookings WHERE status = 'pending'"),
       query('SELECT COUNT(*)::int AS count FROM service_categories'),
+      query('SELECT COUNT(*)::int AS count FROM services WHERE is_active = TRUE'),
+      query('SELECT COUNT(*)::int AS count FROM reviews'),
       query("SELECT COUNT(*)::int AS count FROM complaints WHERE status != 'resolved'")
     ]);
     res.json({
@@ -26,8 +28,28 @@ router.get('/stats', async (_req, res, next) => {
         totalBookings: bookings.rows[0].count,
         pendingBookings: pendingBookings.rows[0].count,
         totalCategories: categories.rows[0].count,
+        totalServices: services.rows[0].count,
+        totalReviews: reviews.rows[0].count,
         openComplaints: openComplaints.rows[0].count
       }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/health', async (_req, res, next) => {
+  try {
+    const dbRes = await query('SELECT NOW() AS server_time, current_database() AS db_name');
+    const mem = process.memoryUsage();
+    res.json({
+      status: 'ok',
+      database: 'connected',
+      dbName: dbRes.rows[0]?.db_name || 'postgres',
+      dbTime: dbRes.rows[0]?.server_time,
+      uptimeSeconds: Math.floor(process.uptime()),
+      nodeVersion: process.version,
+      memoryRssMb: Math.round(mem.rss / 1024 / 1024)
     });
   } catch (err) {
     next(err);
@@ -39,9 +61,42 @@ router.get('/users', async (_req, res, next) => {
     const result = await query(
       `SELECT id, full_name, email, mobile_number, full_address, role, is_verified,
               language_preference, created_at
-       FROM users ORDER BY created_at DESC LIMIT 200`
+       FROM users ORDER BY created_at DESC LIMIT 250`
     );
     res.json({ users: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/users/:id', validateBody(z.object({
+  role: z.enum(['customer', 'provider', 'admin']).optional(),
+  isVerified: z.boolean().optional()
+})), async (req, res, next) => {
+  try {
+    const { role, isVerified } = req.validated;
+    if (req.params.id === req.user.id && role && role !== 'admin') {
+      return res.status(400).json({ error: 'Cannot remove admin role from your own active account.' });
+    }
+    const result = await query(
+      `UPDATE users
+       SET role = COALESCE($1, role),
+           is_verified = COALESCE($2, is_verified),
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, full_name, email, mobile_number, full_address, role, is_verified, language_preference, created_at`,
+      [role ?? null, isVerified ?? null, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'User not found' });
+    await recordAuditLog({
+      actorUserId: req.user.id,
+      action: 'USER_UPDATED_BY_ADMIN',
+      targetType: 'user',
+      targetId: req.params.id,
+      ipAddress: req.ip,
+      details: { role, isVerified }
+    });
+    res.json({ user: result.rows[0] });
   } catch (err) {
     next(err);
   }
@@ -115,20 +170,30 @@ router.post('/categories', validateBody(z.object({
   descriptionBn: z.string().trim().default(''),
   descriptionEn: z.string().trim().default(''),
   iconKey: z.string().trim().default('wrench'),
-  sortOrder: z.number().int().default(20)
+  sortOrder: z.number().int().default(20),
+  isActive: z.boolean().default(true)
 })), async (req, res, next) => {
   try {
     const d = req.validated;
     const result = await query(
-      `INSERT INTO service_categories (slug, name_bn, name_en, description_bn, description_en, icon_key, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO service_categories (slug, name_bn, name_en, description_bn, description_en, icon_key, sort_order, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        ON CONFLICT (slug) DO UPDATE SET
-         name_bn = $2, name_en = $3, description_bn = $4, description_en = $5, icon_key = $6, sort_order = $7, updated_at = NOW()
+         name_bn = $2, name_en = $3, description_bn = $4, description_en = $5, icon_key = $6, sort_order = $7, is_active = $8, updated_at = NOW()
        RETURNING *`,
-      [d.slug, d.nameBn, d.nameEn, d.descriptionBn, d.descriptionEn, d.iconKey, d.sortOrder]
+      [d.slug, d.nameBn, d.nameEn, d.descriptionBn, d.descriptionEn, d.iconKey, d.sortOrder, d.isActive]
     );
     await recordAuditLog({ actorUserId: req.user.id, action: 'CATEGORY_UPSERT', targetType: 'category', targetId: d.slug, ipAddress: req.ip });
     res.json({ category: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/services', async (_req, res, next) => {
+  try {
+    const result = await query('SELECT * FROM services ORDER BY created_at DESC LIMIT 250');
+    res.json({ services: result.rows });
   } catch (err) {
     next(err);
   }
@@ -167,6 +232,7 @@ router.post('/services', validateBody(z.object({
         [d.categorySlug, d.titleBn, d.titleEn, d.descriptionBn, d.descriptionEn, d.providerNameBn, d.providerNameEn, d.areaBn, d.areaEn, d.basePriceInr, d.durationMinutes, d.isActive]
       );
     }
+    await recordAuditLog({ actorUserId: req.user.id, action: d.id ? 'SERVICE_UPDATED' : 'SERVICE_CREATED', targetType: 'service', targetId: result.rows[0]?.id || '', ipAddress: req.ip });
     res.json({ service: result.rows[0] });
   } catch (err) {
     next(err);
@@ -200,6 +266,7 @@ router.patch('/complaints/:id', validateBody(z.object({
       'UPDATE complaints SET status = $1, admin_note = $2, updated_at = NOW() WHERE id = $3 RETURNING *',
       [req.validated.status, req.validated.adminNote, req.params.id]
     );
+    await recordAuditLog({ actorUserId: req.user.id, action: 'COMPLAINT_UPDATED', targetType: 'complaint', targetId: req.params.id, ipAddress: req.ip });
     res.json({ complaint: result.rows[0] });
   } catch (err) {
     next(err);
@@ -227,6 +294,7 @@ router.patch('/reviews/:id/visibility', validateBody(z.object({
       'UPDATE reviews SET is_visible = $1 WHERE id = $2 RETURNING *',
       [req.validated.isVisible, req.params.id]
     );
+    await recordAuditLog({ actorUserId: req.user.id, action: 'REVIEW_VISIBILITY_CHANGED', targetType: 'review', targetId: req.params.id, ipAddress: req.ip });
     res.json({ review: result.rows[0] });
   } catch (err) {
     next(err);
@@ -249,6 +317,21 @@ router.put('/content', validateBody(z.object({
     );
     await recordAuditLog({ actorUserId: req.user.id, action: 'CMS_CONTENT_UPDATED', targetType: 'site_content', targetId: key, ipAddress: req.ip });
     res.json({ item: result.rows[0] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/notifications', async (_req, res, next) => {
+  try {
+    const result = await query(
+      `SELECT n.id, n.title_bn, n.title_en, n.body_bn, n.body_en, n.type, n.is_read, n.created_at,
+              u.email AS user_email
+       FROM notifications n
+       LEFT JOIN users u ON u.id = n.user_id
+       ORDER BY n.created_at DESC LIMIT 80`
+    );
+    res.json({ notifications: result.rows });
   } catch (err) {
     next(err);
   }

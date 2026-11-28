@@ -9,6 +9,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "migrate": "node sql/runMigrations.js",
+    "create-admin": "node scripts/create-admin.js",
     "check": "node --check src/server.js && node --check src/app.js"
   },
   "dependencies": {
